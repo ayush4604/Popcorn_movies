@@ -10,8 +10,11 @@ const API_BASE_HEADERS = {
   'x-family-mode': '0',
   'x-content-mode': '0',
   'x-client-status': '1',
+  'X-Forwarded-For': '103.119.165.10',
+  'X-Real-IP': '103.119.165.10',
+  'CF-Connecting-IP': '103.119.165.10',
   authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjIxNTM1NzgzMjg0NjMxMzY1OTIsImV4cCI6MTc5MTM1OTY0OCwiaWF0IjoxNzgzNTgzMzQ4fQ.piIbpdfhG3t8rz7rRFssiO3eqHtq6der3nOyzTyh9XU',
-  'x-client-info': '{"package_name":"com.community.mbox.in","version_name":"3.0.11.1230.03","version_code":50020080,"os":"android","os_version":"14","install_ch":"google-play","device_id":"70556139be024c59d04661c0a2502499","install_store":"gp","gaid":"1a8144c7-c3b6-4d10-a57e-7aaace20211d","brand":"OnePlus","model":"HD1910","system_language":"en","net":"NETWORK_WIFI","region":"US","timezone":"Asia/Kolkata","sp_code":"","X-Play-Mode":"2","X-Family-Mode":"0","X-Content-Mode":"0"}',
+  'x-client-info': '{"package_name":"com.community.mbox.in","version_name":"3.0.11.1230.03","version_code":50020080,"os":"android","os_version":"14","install_ch":"google-play","device_id":"70556139be024c59d04661c0a2502499","install_store":"gp","gaid":"1a8144c7-c3b6-4d10-a57e-7aaace20211d","brand":"OnePlus","model":"HD1910","system_language":"en","net":"NETWORK_WIFI","region":"IN","timezone":"Asia/Kolkata","sp_code":"","X-Play-Mode":"2","X-Family-Mode":"0","X-Content-Mode":"0"}',
 };
 
 function json(res, statusCode, payload) {

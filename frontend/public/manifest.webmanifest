@@ -1,7 +1,7 @@
 {
-  "name": "MovieBox Desktop",
-  "short_name": "MovieBox",
-  "description": "A desktop-style MovieBox web app with custom playback controls.",
+  "name": "Popcorn Movies",
+  "short_name": "Popcorn",
+  "description": "Watch movies, TV shows, and anime for free with no ads!",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
