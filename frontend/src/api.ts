@@ -94,7 +94,7 @@ export async function getSeasonInfo(subjectId: string) {
   return response.json();
 }
 
-export async function getResourceLinks(subjectId: string, se: string = '1', page: number = 1, resolution: string = '0', ep?: string) {
+export async function getResourceLinks(subjectId: string, se: string = '1', page: number = 1, resolution: string = '0', epFrom?: string, epTo?: string) {
   const params = new URLSearchParams({
     subjectId,
     se,
@@ -103,9 +103,9 @@ export async function getResourceLinks(subjectId: string, se: string = '1', page
     resolution,
   });
 
-  if (ep) {
-    params.set('epFrom', ep);
-    params.set('epTo', ep);
+  if (epFrom) {
+    params.set('epFrom', epFrom);
+    params.set('epTo', epTo || epFrom);
   }
 
   const response = await fetch(apiUrl(`/api/resource?${params}`));

@@ -816,8 +816,18 @@ function App() {
         if (seasons.seasons && seasons.seasons.length > 0) {
            const firstSeason = seasons.seasons[0].se;
            setSelectedSeason(firstSeason);
-           const resources = await getResourceLinks(subjectId, String(firstSeason));
-           setEpisodeList(resources.list || []);
+           let allEps: any[] = [];
+           let epPage = 1;
+           while (epPage <= 10) {
+             const resources = await getResourceLinks(subjectId, String(firstSeason), epPage);
+             const list = resources.list || [];
+             if (list.length === 0) break;
+             allEps = [...allEps, ...list];
+             if (list[list.length - 1].se > firstSeason) break;
+             if (list.length < 20) break;
+             epPage++;
+           }
+           setEpisodeList(allEps.filter((e: any) => e.se === firstSeason));
         }
       } else {
         const resources = await getResourceLinks(subjectId, '0');
@@ -834,8 +844,23 @@ function App() {
     setSelectedSeason(seasonNum);
     setEpisodeList([]);
     try {
-      const resources = await getResourceLinks(selectedMovieId, String(seasonNum));
-      setEpisodeList(resources.list || []);
+      let allEps: any[] = [];
+      let epPage = 1;
+      let foundSeason = false;
+      while (epPage <= 10) {
+        const resources = await getResourceLinks(selectedMovieId, String(seasonNum), epPage);
+        const list = resources.list || [];
+        if (list.length === 0) break;
+        allEps = [...allEps, ...list];
+        
+        const seasonEps = list.filter((e: any) => e.se === seasonNum);
+        if (seasonEps.length > 0) foundSeason = true;
+        if (foundSeason && list[list.length - 1].se > seasonNum) break;
+        
+        if (list.length < 20) break;
+        epPage++;
+      }
+      setEpisodeList(allEps.filter((e: any) => e.se === seasonNum));
     } catch (err) {
       console.error(err);
     }
@@ -1034,7 +1059,7 @@ function App() {
           </h2>
         </section>
 
-        {filterOptions.length > 0 && (
+        {filterOptions.length > 0 && activeTab !== 'home' && (
           <div className="filter-strip">
             {filterOptions.filter(f => f.filterType !== 'sort' && f.filterType !== 'rate' && f.filterType !== 'classify').map(filterGroup => {
               const filterKey = filterGroup.filterType as keyof FilterState;
@@ -1068,7 +1093,7 @@ function App() {
                       >
                         All {groupLabel}
                       </button>
-                      {filterGroup.filterValsV2.filter((value: any) => value.id !== 'All').map((value: any) => (
+                      {filterGroup.filterValsV2.filter((value: any) => value.id !== 'All' && value.id !== 'Hottest').map((value: any) => (
                         <button
                           type="button"
                           key={value.id}
@@ -1112,7 +1137,7 @@ function App() {
                 <div className="filter-section">
                   <h3>Sort by</h3>
                   <div className="pill-grid">
-                    {filterOptions.find(f => f.filterType === 'sort').filterValsV2.map((val: any) => (
+                    {filterOptions.find(f => f.filterType === 'sort').filterValsV2.filter((val: any) => val.id !== 'Hottest').map((val: any) => (
                       <button 
                         key={val.id}
                         onClick={() => {
