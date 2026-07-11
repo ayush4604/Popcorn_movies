@@ -1,0 +1,19 @@
+{
+  "name": "MovieBox Desktop",
+  "short_name": "MovieBox",
+  "description": "A desktop-style MovieBox web app with custom playback controls.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f1117",
+  "theme_color": "#0f1117",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
