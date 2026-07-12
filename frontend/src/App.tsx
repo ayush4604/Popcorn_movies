@@ -668,17 +668,84 @@ function VideoPlayer({
   )
 }
 
+type TabType = 'home' | 'movies' | 'tvshows' | 'anime' | 'fifa';
 
-
-type TabType = 'home' | 'movies' | 'tvshows' | 'anime';
+interface UserAccount {
+  id: string;
+  username: string;
+  email: string;
+  avatar: string;
+  tier: 'trial' | 'premium';
+  trialEndDate: string;
+}
 
 function App() {
+  const [account, setAccount] = useState<UserAccount | null>(null)
+  
+  // Modals
+  const [isPremiumModalOpen, setIsPremiumModalOpen] = useState(false)
+  const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false)
+  const [editUsername, setEditUsername] = useState('')
+  const [isTrialWarningModalOpen, setIsTrialWarningModalOpen] = useState(false)
+  const [trialDaysRemaining, setTrialDaysRemaining] = useState<number | null>(null)
+  const [isTrialExpired, setIsTrialExpired] = useState(false)
+  
+  useEffect(() => {
+    let currentAccount = account;
+    const savedAccount = localStorage.getItem('popcorn_account');
+    if (savedAccount) {
+      currentAccount = JSON.parse(savedAccount);
+      setAccount(currentAccount);
+    } else {
+      const randomId = Math.floor(1000 + Math.random() * 9000);
+      const trialEnd = new Date();
+      trialEnd.setDate(trialEnd.getDate() + 7);
+      
+      const newAccount: UserAccount = {
+        id: `guest_${randomId}`,
+        username: `Guest_${randomId}`,
+        email: `guest_${randomId}@popcorn.movies`,
+        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${randomId}&backgroundColor=b6e3f4`,
+        tier: 'trial',
+        trialEndDate: trialEnd.toISOString()
+      };
+      
+      localStorage.setItem('popcorn_account', JSON.stringify(newAccount));
+      currentAccount = newAccount;
+      setAccount(newAccount);
+    }
+    
+    // Calculate Expiration
+    if (currentAccount && currentAccount.tier === 'trial') {
+      const msLeft = new Date(currentAccount.trialEndDate).getTime() - new Date().getTime();
+      const daysLeft = Math.ceil(msLeft / (1000 * 3600 * 24));
+      setTrialDaysRemaining(daysLeft);
+      
+      if (daysLeft <= 0) {
+        setIsTrialExpired(true);
+      } else if (daysLeft <= 2) {
+        setIsTrialWarningModalOpen(true);
+      }
+    }
+  }, []);
+  
   const [movies, setMovies] = useState<any[]>([])
+  const moviesRef = useRef<any[]>([])
+  useEffect(() => {
+    moviesRef.current = movies;
+  }, [movies]);
+  const [fifaMatches, setFifaMatches] = useState<any[]>([])
+  const [fifaLatestMatch, setFifaLatestMatch] = useState<any>(null)
+  const [fifaVoteRank, setFifaVoteRank] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [isFetchingPlay, setIsFetchingPlay] = useState(false)
   const [activeTab, setActiveTab] = useState<TabType>('home')
+  
+  // UI State
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false)
   
   const [filterOptions, setFilterOptions] = useState<any[]>([])
   const [currentFilters, setCurrentFilters] = useState<Partial<FilterState>>({
@@ -693,6 +760,7 @@ function App() {
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
+  const isFetchingRef = useRef(false)
 
   // Details Modal state
   const [selectedMovieId, setSelectedMovieId] = useState<string | null>(null)
@@ -725,13 +793,27 @@ function App() {
   useEffect(() => {
     if (!hasMore && page !== 1) return;
 
+    isFetchingRef.current = true;
     if (page === 1) setLoading(true);
     else setLoadingMore(true);
     
     setError(null)
     
     let fetchPromise;
-    if (searchQuery.trim() !== '') {
+    if (activeTab === 'fifa') {
+      const fifaLeagueId = "4186762757372631736";
+      fetchPromise = Promise.all([
+        fetch(`https://h5-sport-api.aoneroom.com/wefeed-h5api-bff/sport/aggregate-v1?leagueId=${fifaLeagueId}`).then(r => r.json()),
+        fetch(`https://h5-sport-api.aoneroom.com/wefeed-h5api-bff/live/match-list-v5?leagueId=${fifaLeagueId}`).then(r => r.json())
+      ]).then(([aggregate, matchListRes]) => {
+         const allMatches = matchListRes?.data?.list || [];
+         return {
+           isFifa: true,
+           aggregate: aggregate?.data || {},
+           matchList: allMatches.filter((m: any) => String(m.leagueId) === fifaLeagueId)
+         }
+      });
+    } else if (searchQuery.trim() !== '') {
       fetchPromise = searchMovies(searchQuery.trim(), page, 20)
     } else {
       let tabId = "0";
@@ -739,30 +821,56 @@ function App() {
       else if (activeTab === 'tvshows') tabId = "2";
       else if (activeTab === 'anime') tabId = "1006";
 
-      fetchPromise = getCategoryList(tabId, page, 20, currentFilters);
+      let filtersToUse = currentFilters;
+      if (activeTab === 'home') {
+        filtersToUse = { ...currentFilters, classify: 'Hindi dub' };
+      }
+
+      fetchPromise = getCategoryList(tabId, page, 20, filtersToUse);
     }
 
     let isSubscribed = true;
     fetchPromise
-      .then(items => {
+      .then(payload => {
         if (!isSubscribed) return;
         
-        // Filter out non-movie/tvshow items (like youtube clips which have no posters) and items with broken covers
-        const validItems = items.filter((item: any) => {
-          const hasCover = item.cover && (item.cover.url || typeof item.cover === 'string');
-          return hasCover && (item.subjectType === 1 || item.subjectType === 2 || !item.subjectType);
-        });
-        
-        setMovies(prev => {
-          if (page === 1) return validItems;
-          // Deduplicate items (Home tab API often returns duplicates across pages)
-          const existingIds = new Set(prev.map(m => m.id || m.subjectId));
-          const newItems = validItems.filter((item: any) => !existingIds.has(item.id || item.subjectId));
-          return [...prev, ...newItems];
-        });
-        setHasMore(items.length > 0)
-        setLoading(false)
-        setLoadingMore(false)
+        if (activeTab === 'fifa' && payload.isFifa) {
+          setFifaMatches(payload.matchList || []);
+          setFifaLatestMatch(payload.aggregate.latestMatch || null);
+          setFifaVoteRank(payload.aggregate.leagueVoteRank || []);
+          setMovies([]);
+          setHasMore(false);
+        } else {
+          const items = payload || [];
+          // Filter out non-movie/tvshow items (like youtube clips which have no posters) and items with broken covers
+          const validItems = items.filter((item: any) => {
+            const hasCover = item.cover && (item.cover.url || typeof item.cover === 'string');
+            return hasCover && (item.subjectType === 1 || item.subjectType === 2 || !item.subjectType);
+          });
+          
+          setMovies(prev => {
+            if (page === 1) {
+              setHasMore(validItems.length > 0);
+              return validItems;
+            }
+            
+            const existingIds = new Set(prev.map(m => m.id || m.subjectId));
+            const newItems = validItems.filter((item: any) => !existingIds.has(item.id || item.subjectId));
+            
+            if (validItems.length > 0 && newItems.length === 0) {
+              setHasMore(false); // Stop if we only got duplicates
+            } else {
+              setHasMore(items.length > 0);
+            }
+            return [...prev, ...newItems];
+          });
+        }
+        setLoading(false);
+        setLoadingMore(false);
+        // Delay releasing the fetch lock to allow React to render DOM (prevents infinite scroll triggering instantly)
+        setTimeout(() => {
+          if (isSubscribed) isFetchingRef.current = false;
+        }, 300);
       })
       .catch(err => {
         if (!isSubscribed) return;
@@ -770,28 +878,48 @@ function App() {
         setError(err.message)
         setLoading(false)
         setLoadingMore(false)
+        setTimeout(() => {
+          if (isSubscribed) isFetchingRef.current = false;
+        }, 300);
       })
 
     return () => {
       isSubscribed = false;
+      isFetchingRef.current = false;
     }
   }, [searchQuery, activeTab, currentFilters, page])
+
+  // IntersectionObserver for robust infinite scrolling
+  const loaderRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isFetchingRef.current) {
+          isFetchingRef.current = true;
+          setLoadingMore(true);
+          setPage(p => p + 1);
+        }
+      },
+      { root: null, rootMargin: '400px', threshold: 0.1 }
+    );
+
+    if (loaderRef.current) {
+      observer.observe(loaderRef.current);
+    }
+
+    return () => {
+      if (loaderRef.current) {
+        observer.unobserve(loaderRef.current);
+      }
+      observer.disconnect();
+    };
+  }, [hasMore, loading]);
 
   const handleSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       setSearchQuery(e.currentTarget.value)
       setPage(1)
       setHasMore(true)
-    }
-  }
-
-  const handleScroll = (e: React.UIEvent<HTMLElement>) => {
-    const { scrollTop, clientHeight, scrollHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight + 300) {
-      if (!loading && !loadingMore && hasMore) {
-        setLoadingMore(true);
-        setPage(p => p + 1);
-      }
     }
   }
 
@@ -1007,24 +1135,74 @@ function App() {
         />
       )}
       
+      {/* Sidebar Mobile Backdrop */}
+      {isMobileMenuOpen && (
+        <div className="sidebar-backdrop" onClick={() => setIsMobileMenuOpen(false)}></div>
+      )}
+      
       {/* Sidebar */}
-      <aside className="sidebar">
-        <h1 className="brand-mark" aria-label="Popcorn">
-          <span className="brand-pop">Pop</span><span className="brand-corn">corn</span>
-          <span className="brand-kernel" aria-hidden="true"></span>
+      <aside className={`sidebar ${isMobileMenuOpen ? 'is-open' : ''}`}>
+        <h1 className="brand-mark" aria-label="Popcorn Movies">
+          <div style={{ display: 'block' }}>
+            <span className="brand-pop">Pop</span><span className="brand-corn">corn</span>
+          </div>
+          <div className="brand-movies" style={{ display: 'block', fontSize: '0.45em', fontWeight: '500', color: '#ffb74d', letterSpacing: '2px', textTransform: 'uppercase', textAlign: 'right', marginTop: '2px', paddingRight: '5px' }}>Movies</div>
         </h1>
         <nav className="sidebar-nav">
-          <a href="#" className={activeTab === 'home' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('home'); setSearchQuery(''); setPage(1); setHasMore(true); }}>Home</a>
-          <a href="#" className={activeTab === 'movies' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('movies'); setSearchQuery(''); setPage(1); setHasMore(true); }}>Movies</a>
-          <a href="#" className={activeTab === 'tvshows' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('tvshows'); setSearchQuery(''); setPage(1); setHasMore(true); }}>TV Shows</a>
-          <a href="#" className={activeTab === 'anime' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('anime'); setSearchQuery(''); setPage(1); setHasMore(true); }}>Anime</a>
+          <a href="#" className={activeTab === 'home' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('home'); setSearchQuery(''); setPage(1); setHasMore(true); setIsMobileMenuOpen(false); }}>Home</a>
+          <a href="#" className={activeTab === 'movies' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('movies'); setSearchQuery(''); setPage(1); setHasMore(true); setIsMobileMenuOpen(false); }}>Movies</a>
+          <a href="#" className={activeTab === 'tvshows' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('tvshows'); setSearchQuery(''); setPage(1); setHasMore(true); setIsMobileMenuOpen(false); }}>TV Shows</a>
+          <a href="#" className={activeTab === 'anime' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('anime'); setSearchQuery(''); setPage(1); setHasMore(true); setIsMobileMenuOpen(false); }}>Anime</a>
+          <a href="#" className={activeTab === 'fifa' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('fifa'); setSearchQuery(''); setPage(1); setHasMore(true); setIsMobileMenuOpen(false); }} style={{ color: '#00ff88', fontWeight: 'bold', borderLeft: activeTab === 'fifa' ? '3px solid #00ff88' : 'none' }}>FIFA WORLD CUP</a>
         </nav>
+        
+        {/* Mobile Sidebar Account Section */}
+        {account && (
+          <div className="sidebar-account-section">
+            <div className="account-dropdown-divider" style={{ margin: '0 -16px 16px -16px' }}></div>
+            <div className="account-dropdown-header">
+              <div className="profile-chip large" style={{ backgroundImage: `url(${account.avatar})`, backgroundSize: 'cover' }}></div>
+              <div className="account-info">
+                <span className="account-name">{account.username}</span>
+                <span className="account-email">{account.email}</span>
+                {account.tier === 'premium' ? (
+                  <span className="account-badge premium">⭐ Premium Member</span>
+                ) : (
+                  <span className="account-badge trial">✨ Free Trial ({Math.ceil((new Date(account.trialEndDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24))} days left)</span>
+                )}
+              </div>
+            </div>
+            {account.tier !== 'premium' && (
+              <button className="upgrade-premium-btn" onClick={() => { setIsMobileMenuOpen(false); setIsPremiumModalOpen(true); }}>
+                Upgrade to Premium
+              </button>
+            )}
+            <ul className="account-menu-list">
+              <li onClick={() => { setIsMobileMenuOpen(false); setEditUsername(account.username); setIsEditProfileModalOpen(true); }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                Edit Profile
+              </li>
+              <li>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Watch History
+              </li>
+              <li>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                Preferences
+              </li>
+              <li className="logout" onClick={() => { localStorage.removeItem('popcorn_account'); window.location.reload(); }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                Log Out
+              </li>
+            </ul>
+          </div>
+        )}
       </aside>
 
       {/* Main Content */}
-      <main className="content-area" onScroll={handleScroll}>
+      <main className="content-area">
         <header className="content-header">
-          <button className="menu-toggle" aria-label="Open navigation">
+          <button className="menu-toggle" aria-label="Open navigation" onClick={() => setIsMobileMenuOpen(true)}>
             <span></span>
             <span></span>
             <span></span>
@@ -1039,9 +1217,59 @@ function App() {
             />
             <span className="search-shortcut">CTRL + K</span>
           </div>
-          <div className="topbar-actions">
+          <div className="topbar-actions" style={{ position: 'relative' }}>
             <button className="notification-button" aria-label="Notifications"><span>3</span></button>
-            <div className="profile-chip" aria-label="Profile"></div>
+            <div 
+              className="profile-chip" 
+              aria-label="Profile" 
+              onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
+              style={account ? { backgroundImage: `url(${account.avatar})`, backgroundSize: 'cover' } : {}}
+            ></div>
+            
+            {/* Account Settings Dropdown */}
+            {isAccountMenuOpen && account && (
+              <div className="account-dropdown">
+                <div className="account-dropdown-header">
+                  <div className="profile-chip large" style={{ backgroundImage: `url(${account.avatar})`, backgroundSize: 'cover' }}></div>
+                  <div className="account-info">
+                    <span className="account-name">{account.username}</span>
+                    <span className="account-email">{account.email}</span>
+                    {account.tier === 'premium' ? (
+                      <span className="account-badge premium">⭐ Premium Member</span>
+                    ) : (
+                      <span className="account-badge trial">✨ Free Trial ({Math.ceil((new Date(account.trialEndDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24))} days left)</span>
+                    )}
+                  </div>
+                </div>
+                {account.tier !== 'premium' && (
+                  <button className="upgrade-premium-btn" onClick={() => { setIsAccountMenuOpen(false); setIsPremiumModalOpen(true); }}>
+                    Upgrade to Premium
+                  </button>
+                )}
+                <div className="account-dropdown-divider"></div>
+                <ul className="account-menu-list">
+                  <li onClick={() => { setIsAccountMenuOpen(false); setEditUsername(account.username); setIsEditProfileModalOpen(true); }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    Edit Profile
+                  </li>
+                  <li>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    Watch History
+                  </li>
+                  <li>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                    Preferences
+                  </li>
+                </ul>
+                <div className="account-dropdown-divider"></div>
+                <ul className="account-menu-list">
+                  <li className="logout" onClick={() => { localStorage.removeItem('popcorn_account'); window.location.reload(); }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    Log Out
+                  </li>
+                </ul>
+              </div>
+            )}
           </div>
         </header>
 
@@ -1054,6 +1282,7 @@ function App() {
               : activeTab === 'movies' ? 'Movies'
               : activeTab === 'tvshows' ? 'TV Shows'
               : activeTab === 'anime' ? 'Anime'
+              : activeTab === 'fifa' ? 'FIFA World Cup Matches'
               : 'Trending Now'
             }
           </h2>
@@ -1203,7 +1432,8 @@ function App() {
         {error && <div className="state-panel error">Error: {error}</div>}
 
         {/* Movie Grid */}
-        {!loading && !error && (
+        {/* Movie Grid */}
+        {!loading && !error && activeTab !== 'fifa' && (
           <div className="movie-grid">
             {movies.map((movie: any, i: number) => {
               const uniqueKey = `${movie.id || movie.subjectId}-${i}`;
@@ -1239,6 +1469,142 @@ function App() {
             })}
           </div>
         )}
+
+        {/* FIFA Custom World Cup Layout */}
+        {!loading && !error && activeTab === 'fifa' && (
+          <div className="world-cup-container">
+            
+            {/* Hero Featured Match */}
+            {fifaLatestMatch && (
+              <div className="hero-match-card">
+                <div className="hero-header">
+                  <span className="hero-title">World Cup</span>
+                  <span className="hero-badge">Upcoming</span>
+                </div>
+                <div className="hero-teams">
+                  <div className="hero-team">
+                    <span className="hero-team-name">{fifaLatestMatch.team1.name}</span>
+                    <img src={fifaLatestMatch.team1.avatar} alt={fifaLatestMatch.team1.name} />
+                  </div>
+                  <div className="hero-vs">VS</div>
+                  <div className="hero-team reverse">
+                    <span className="hero-team-name">{fifaLatestMatch.team2.name}</span>
+                    <img src={fifaLatestMatch.team2.avatar} alt={fifaLatestMatch.team2.name} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Team Votes Podium */}
+            {fifaVoteRank && fifaVoteRank.length >= 3 && (
+              <div className="team-votes-section">
+                <h3 className="votes-title">World Cup Team Votes</h3>
+                <div className="podium-container">
+                  {/* Rank 2 - Left */}
+                  <div className="podium-item rank-2">
+                    <div className="podium-avatar-wrapper">
+                      <img src={fifaVoteRank[1].avatar} className="podium-avatar" alt={fifaVoteRank[1].name} />
+                      <div className="podium-badge">2</div>
+                      <div className="podium-tecno">TECNO</div>
+                    </div>
+                    <span className="podium-name">{fifaVoteRank[1].name}</span>
+                    <span className="podium-votes">⚡ {Number(fifaVoteRank[1].voteCount).toLocaleString()}</span>
+                  </div>
+                  
+                  {/* Rank 1 - Center */}
+                  <div className="podium-item rank-1">
+                    <div className="podium-avatar-wrapper">
+                      <img src={fifaVoteRank[0].avatar} className="podium-avatar" alt={fifaVoteRank[0].name} />
+                      <div className="podium-badge">1</div>
+                      <div className="podium-tecno">TECNO</div>
+                    </div>
+                    <span className="podium-name">{fifaVoteRank[0].name}</span>
+                    <span className="podium-votes">⚡ {Number(fifaVoteRank[0].voteCount).toLocaleString()}</span>
+                  </div>
+
+                  {/* Rank 3 - Right */}
+                  <div className="podium-item rank-3">
+                    <div className="podium-avatar-wrapper">
+                      <img src={fifaVoteRank[2].avatar} className="podium-avatar" alt={fifaVoteRank[2].name} />
+                      <div className="podium-badge">3</div>
+                      <div className="podium-tecno">TECNO</div>
+                    </div>
+                    <span className="podium-name">{fifaVoteRank[2].name}</span>
+                    <span className="podium-votes">⚡ {Number(fifaVoteRank[2].voteCount).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Compact Matches List */}
+            <div className="matches-section-header">
+              <h2>Matches</h2>
+              <span>All &gt;</span>
+            </div>
+            <div className="matches-date">Jul 12, 2026</div>
+            
+            <div className="matches-list-container">
+              {fifaMatches.map((match: any, i: number) => {
+                const uniqueKey = `${match.id}-${i}`;
+                const isEnded = match.status === 'MatchEnded';
+                
+                return (
+                  <div 
+                    key={uniqueKey} 
+                    className="match-row-card"
+                    onClick={() => {
+                      let streamUrl = match.playPath;
+                      if (!streamUrl && match.playSource && match.playSource.length > 0) {
+                        const urlMatch = match.playSource[0].path.match(/url=(.*?)&/);
+                        if (urlMatch) streamUrl = decodeURIComponent(urlMatch[1]);
+                      }
+                      if (streamUrl) {
+                        setVlcFallback({
+                          title: `${match.team1.name} vs ${match.team2.name}`,
+                          format: 'm3u8',
+                          resolution: 'Live',
+                          directUrl: streamUrl,
+                          vlcUrl: streamUrl
+                        });
+                      } else {
+                        alert(`The live stream for ${match.team1.name} vs ${match.team2.name} is not available yet! Please check back closer to kickoff.`);
+                      }
+                    }}
+                  >
+                    <div className="match-row-top">
+                      <span>06:30</span>
+                      <span>Quarter-finals</span>
+                      <span>⭐</span>
+                    </div>
+                    
+                    <div className="match-row-main">
+                      <div className="match-row-team left">
+                        <span className="match-row-team-name">{match.team1.name}</span>
+                        <img src={match.team1.avatar} className="match-row-avatar" alt={match.team1.name} />
+                      </div>
+                      
+                      <div className="match-row-score">
+                        {isEnded ? `${match.team1.score} - ${match.team2.score}` : 'VS'}
+                      </div>
+                      
+                      <div className="match-row-team right">
+                        <img src={match.team2.avatar} className="match-row-avatar" alt={match.team2.name} />
+                        <span className="match-row-team-name">{match.team2.name}</span>
+                      </div>
+                    </div>
+                    
+                    {isEnded && (
+                      <div className="match-row-actions">
+                        <button className="match-action-btn">Replay ↺</button>
+                        <button className="match-action-btn">Highlights ▷</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         
         {loadingMore && (
           <div className="py-8 text-center text-gray-400">
@@ -1248,6 +1614,9 @@ function App() {
             <p className="mt-2 text-sm">Loading more movies...</p>
           </div>
         )}
+        
+        {/* Invisible target for IntersectionObserver infinite scrolling */}
+        <div ref={loaderRef} style={{ height: '20px', width: '100%' }} />
       </main>
 
       {/* Details Modal */}
@@ -1434,6 +1803,168 @@ function App() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+      
+      {/* Edit Profile Modal */}
+      {isEditProfileModalOpen && account && (
+        <div className="details-backdrop" style={{ zIndex: 200 }}>
+          <div className="details-shell" style={{ maxWidth: '400px', margin: '10vh auto', padding: '24px' }}>
+            <button className="details-close" onClick={() => setIsEditProfileModalOpen(false)}>×</button>
+            <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '24px', color: '#fff' }}>Edit Profile</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
+              <img src={account.avatar} alt="Avatar" style={{ width: '96px', height: '96px', borderRadius: '50%', background: '#b6e3f4' }} />
+              <button 
+                className="match-action-btn" 
+                onClick={() => {
+                  const newSeed = Math.floor(Math.random() * 10000);
+                  const newAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${newSeed}&backgroundColor=b6e3f4`;
+                  setAccount({ ...account, avatar: newAvatar });
+                  localStorage.setItem('popcorn_account', JSON.stringify({ ...account, avatar: newAvatar }));
+                }}
+              >
+                Randomize Avatar 🎲
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ color: '#888', fontSize: '14px' }}>Username</label>
+              <input 
+                type="text" 
+                value={editUsername} 
+                onChange={(e) => setEditUsername(e.target.value)} 
+                className="search-input" 
+                style={{ width: '100%', padding: '12px', background: 'rgba(255,255,255,0.05)' }} 
+              />
+            </div>
+            <button 
+              className="upgrade-premium-btn" 
+              style={{ marginTop: '24px', width: '100%' }}
+              onClick={() => {
+                if (editUsername.trim()) {
+                  setAccount({ ...account, username: editUsername.trim() });
+                  localStorage.setItem('popcorn_account', JSON.stringify({ ...account, username: editUsername.trim() }));
+                }
+                setIsEditProfileModalOpen(false);
+              }}
+            >
+              Save Changes
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Trial Expired Mask */}
+      {isTrialExpired && account?.tier !== 'premium' && (
+        <div className="details-backdrop" style={{ zIndex: 9999, backdropFilter: 'blur(20px)', background: 'rgba(0,0,0,0.85)' }}>
+          <div className="details-shell" style={{ maxWidth: '500px', margin: '20vh auto', padding: '0', background: 'linear-gradient(180deg, #1a1625 0%, #0f1016 100%)', border: '1px solid rgba(255,82,0,0.5)', textAlign: 'center' }}>
+            <div style={{ padding: '40px 32px' }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏰</div>
+              <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff', marginBottom: '16px' }}>Your Free Trial has Expired!</h2>
+              <p style={{ color: '#aaa', fontSize: '16px', marginBottom: '32px' }}>
+                You've run out of free trial time. Upgrade to Premium for <strong>FREE</strong> to continue watching your favorite movies and shows!
+              </p>
+              
+              <button 
+                className="upgrade-premium-btn" 
+                style={{ width: '100%', padding: '16px', fontSize: '18px', fontWeight: 'bold', background: 'linear-gradient(90deg, #0088cc, #00aaff)', border: 'none', borderRadius: '12px', color: '#fff', cursor: 'pointer', boxShadow: '0 8px 24px rgba(0, 170, 255, 0.3)', marginBottom: '16px' }}
+                onClick={() => {
+                  if (account) {
+                    window.open('https://t.me/+lGFcHVz_gy0wZThl', '_blank');
+                    const updatedAccount = { ...account, tier: 'premium' as const };
+                    setAccount(updatedAccount);
+                    localStorage.setItem('popcorn_account', JSON.stringify(updatedAccount));
+                    setIsTrialExpired(false);
+                  }
+                }}
+              >
+                Join Telegram to Upgrade for FREE
+              </button>
+              
+              <button 
+                style={{ background: 'none', border: '1px solid rgba(255,255,255,0.2)', padding: '12px', borderRadius: '8px', color: '#888', cursor: 'pointer', width: '100%' }} 
+                onClick={() => {
+                  window.location.href = 'https://google.com';
+                }}
+              >
+                Exit Site
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trial Warning Modal */}
+      {isTrialWarningModalOpen && account?.tier !== 'premium' && (
+        <div className="details-backdrop" style={{ zIndex: 300, backdropFilter: 'blur(5px)' }}>
+          <div className="details-shell" style={{ maxWidth: '400px', margin: '15vh auto', padding: '32px', textAlign: 'center', background: '#1a1625', border: '1px solid rgba(255,183,77,0.3)' }}>
+            <button className="details-close" onClick={() => setIsTrialWarningModalOpen(false)}>×</button>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
+            <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#ffb74d', marginBottom: '12px' }}>Trial Expiring Soon!</h2>
+            <p style={{ color: '#aaa', fontSize: '16px', marginBottom: '24px' }}>
+              You only have <strong>{trialDaysRemaining} days left</strong> on your Free Trial. Don't lose access!
+            </p>
+            <button 
+              className="upgrade-premium-btn" 
+              style={{ width: '100%', padding: '14px', fontSize: '16px', fontWeight: 'bold', background: 'linear-gradient(90deg, #0088cc, #00aaff)', border: 'none', borderRadius: '12px', color: '#fff', cursor: 'pointer' }}
+              onClick={() => {
+                if (account) {
+                  window.open('https://t.me/+lGFcHVz_gy0wZThl', '_blank');
+                  const updatedAccount = { ...account, tier: 'premium' as const };
+                  setAccount(updatedAccount);
+                  localStorage.setItem('popcorn_account', JSON.stringify(updatedAccount));
+                  setIsTrialWarningModalOpen(false);
+                }
+              }}
+            >
+              Join Telegram to Upgrade for FREE
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Premium Upgrade Modal */}
+      {isPremiumModalOpen && account && (
+        <div className="details-backdrop" style={{ zIndex: 200, backdropFilter: 'blur(10px)' }}>
+          <div className="details-shell" style={{ maxWidth: '500px', margin: '5vh auto', padding: '0', background: 'linear-gradient(180deg, #1a1625 0%, #0f1016 100%)', border: '1px solid rgba(255,183,77,0.3)' }}>
+            <button className="details-close" onClick={() => setIsPremiumModalOpen(false)}>×</button>
+            <div style={{ padding: '40px 32px', textAlign: 'center' }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>👑</div>
+              <h2 style={{ fontSize: '32px', fontWeight: 'bold', color: '#ffb74d', marginBottom: '8px' }}>Go Premium</h2>
+              <p style={{ color: '#aaa', fontSize: '16px', marginBottom: '32px' }}>Unlock the ultimate streaming experience.</p>
+              
+              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 40px 0', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <li style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '16px', color: '#fff' }}>
+                  <span style={{ color: '#00ff88' }}>✓</span> Ad-free streaming
+                </li>
+                <li style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '16px', color: '#fff' }}>
+                  <span style={{ color: '#00ff88' }}>✓</span> 4K Ultra HD & HDR Support
+                </li>
+                <li style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '16px', color: '#fff' }}>
+                  <span style={{ color: '#00ff88' }}>✓</span> Unlimited offline downloads
+                </li>
+                <li style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '16px', color: '#fff' }}>
+                  <span style={{ color: '#00ff88' }}>✓</span> Exclusive VIP titles
+                </li>
+              </ul>
+              
+              <button 
+                className="upgrade-premium-btn" 
+                style={{ width: '100%', padding: '16px', fontSize: '18px', fontWeight: 'bold', background: 'linear-gradient(90deg, #0088cc, #00aaff)', border: 'none', borderRadius: '12px', color: '#fff', cursor: 'pointer', boxShadow: '0 8px 24px rgba(0, 170, 255, 0.4)' }}
+                onClick={() => {
+                  if (account) {
+                    window.open('https://t.me/+lGFcHVz_gy0wZThl', '_blank');
+                    const updatedAccount = { ...account, tier: 'premium' as const };
+                    setAccount(updatedAccount);
+                    localStorage.setItem('popcorn_account', JSON.stringify(updatedAccount));
+                    setIsPremiumModalOpen(false);
+                  }
+                }}
+              >
+                Join Telegram to Upgrade for FREE
+              </button>
+              <button style={{ marginTop: '16px', background: 'none', border: 'none', color: '#888', cursor: 'pointer' }} onClick={() => setIsPremiumModalOpen(false)}>Maybe later</button>
+            </div>
           </div>
         </div>
       )}
