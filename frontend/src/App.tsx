@@ -1596,7 +1596,7 @@ function App() {
                 const uniqueKey = `${match.id}-${i}`;
                 const isEnded = match.status === 'MatchEnded';
                 const matchDate = new Date(parseInt(match.startTime));
-                const timeString = matchDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const timeString = matchDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + matchDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 
                 return (
                   <div 
