@@ -161,11 +161,31 @@ function proxyMediaRequest(req, res, routePrefix, authParams = '') {
   }
 
   const upstream = https.request({ hostname: host, path, method: req.method, headers }, (upstreamRes) => {
-    res.writeHead(upstreamRes.statusCode || 502, {
-      ...upstreamRes.headers,
-      'access-control-allow-origin': '*',
-    });
-    upstreamRes.pipe(res);
+    const isM3u8 = path.split('?')[0].endsWith('.m3u8');
+    if (isM3u8 && allQueries && upstreamRes.statusCode === 200) {
+      let body = '';
+      upstreamRes.setEncoding('utf8');
+      upstreamRes.on('data', chunk => body += chunk);
+      upstreamRes.on('end', () => {
+        const rewritten = body.split('\n').map(line => {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith('#')) {
+            return `${trimmed}${trimmed.includes('?') ? '&' : '?'}${allQueries}`;
+          }
+          return line;
+        }).join('\n');
+        const resHeaders = { ...upstreamRes.headers, 'access-control-allow-origin': '*' };
+        delete resHeaders['content-length'];
+        res.writeHead(200, resHeaders);
+        res.end(rewritten);
+      });
+    } else {
+      res.writeHead(upstreamRes.statusCode || 502, {
+        ...upstreamRes.headers,
+        'access-control-allow-origin': '*',
+      });
+      upstreamRes.pipe(res);
+    }
   });
 
   upstream.on('error', (error) => {
