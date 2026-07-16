@@ -1524,7 +1524,13 @@ function App() {
                       format: 'm3u8',
                       resolution: 'Live',
                       directUrl: fifaLatestMatch.playPath,
-                      vlcUrl: fifaLatestMatch.playPath
+                      vlcUrl: fifaLatestMatch.playPath,
+                      browserStream: {
+                        url: fifaLatestMatch.playPath,
+                        authParams: '',
+                        streams: [{ url: fifaLatestMatch.playPath, format: 'm3u8', title: 'Live' }],
+                        streamIndex: 0
+                      }
                     });
                   }
                 }}
@@ -1561,7 +1567,13 @@ function App() {
                           format: 'mp4',
                           resolution: '1080p',
                           directUrl: fifaLatestMatch.replay[0].path,
-                          vlcUrl: fifaLatestMatch.replay[0].path
+                          vlcUrl: fifaLatestMatch.replay[0].path,
+                          browserStream: {
+                            url: fifaLatestMatch.replay[0].path,
+                            authParams: '',
+                            streams: [{ url: fifaLatestMatch.replay[0].path, format: 'mp4', title: 'Replay' }],
+                            streamIndex: 0
+                          }
                         });
                       }}>Replay 📺</button>
                     )}
@@ -1572,7 +1584,13 @@ function App() {
                           format: 'mp4',
                           resolution: '1080p',
                           directUrl: fifaLatestMatch.highlights[0].path,
-                          vlcUrl: fifaLatestMatch.highlights[0].path
+                          vlcUrl: fifaLatestMatch.highlights[0].path,
+                          browserStream: {
+                            url: fifaLatestMatch.highlights[0].path,
+                            authParams: '',
+                            streams: [{ url: fifaLatestMatch.highlights[0].path, format: 'mp4', title: 'Highlights' }],
+                            streamIndex: 0
+                          }
                         });
                       }}>Highlights 🎬</button>
                     )}
@@ -1654,7 +1672,13 @@ function App() {
                           format: 'm3u8',
                           resolution: 'Live',
                           directUrl: streamUrl,
-                          vlcUrl: streamUrl
+                          vlcUrl: streamUrl,
+                          browserStream: {
+                            url: streamUrl,
+                            authParams: '',
+                            streams: [{ url: streamUrl, format: 'm3u8', title: 'Live' }],
+                            streamIndex: 0
+                          }
                         });
                       } else {
                         alert(`The live stream for ${match.team1.name} vs ${match.team2.name} is not available yet! Please check back closer to kickoff.`);
@@ -1696,7 +1720,13 @@ function App() {
                               format: 'mp4',
                               resolution: '1080p',
                               directUrl: match.replay[0].path,
-                              vlcUrl: match.replay[0].path
+                              vlcUrl: match.replay[0].path,
+                              browserStream: {
+                                url: match.replay[0].path,
+                                authParams: '',
+                                streams: [{ url: match.replay[0].path, format: 'mp4', title: 'Replay' }],
+                                streamIndex: 0
+                              }
                             });
                           }}>Replay 📺</button>
                         )}
@@ -1707,7 +1737,13 @@ function App() {
                               format: 'mp4',
                               resolution: '1080p',
                               directUrl: match.highlights[0].path,
-                              vlcUrl: match.highlights[0].path
+                              vlcUrl: match.highlights[0].path,
+                              browserStream: {
+                                url: match.highlights[0].path,
+                                authParams: '',
+                                streams: [{ url: match.highlights[0].path, format: 'mp4', title: 'Highlights' }],
+                                streamIndex: 0
+                              }
                             });
                           }}>Highlights 🎬</button>
                         )}
