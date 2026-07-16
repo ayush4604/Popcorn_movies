@@ -31,6 +31,7 @@ interface VlcFallback {
   subjectId?: string;
   se?: string;
   ep?: string;
+  isLiveSports?: boolean;
 }
 
 type MenuName = 'language' | 'quality' | 'subtitle' | null;
@@ -201,6 +202,11 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const [selectedMp4Index, setSelectedMp4Index] = useState(0);
   const [fetchingMp4s, setFetchingMp4s] = useState(false);
 
+  const [server, setServer] = useState<1 | 2>(1);
+  const [server2Error, setServer2Error] = useState<string | null>(null);
+  const [fetchingServer2, setFetchingServer2] = useState(false);
+  const [server2Url, setServer2Url] = useState<string | null>(null);
+
   useEffect(() => {
     if (!fallback.subjectId) return;
     setFetchingMp4s(true);
@@ -243,7 +249,7 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const isHevc = selectedStream ? isHevcStream(selectedStream) : false;
   
   const vlcAuthParams = selectedStream ? getAuthParams(selectedStream) : '';
-  const currentVlcUrl = selectedStream ? toVlcProxyUrl(selectedStream.url, vlcAuthParams) : fallback.vlcUrl;
+  const currentVlcUrl = server === 2 && server2Url ? server2Url : (selectedStream ? toVlcProxyUrl(selectedStream.url, vlcAuthParams) : fallback.vlcUrl);
   const resolutionOptions = selectedStream ? getResolutionOptions(selectedStream) : [];
   const availableQualities = [
     ...new Set([
@@ -254,8 +260,31 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const selectedQuality = availableQualities[selectedMp4Index] || availableQualities[0] || '';
   const selectedMp4 = mp4Links.find((link) => getResolutionNumber(link.label) === getResolutionNumber(selectedQuality));
   
-  const canPlayInBrowser = selectedStream ? !isHevc : !!fallback.browserStream;
-  const currentBrowserStream = selectedStream ? { url: selectedStream.url, authParams: getAuthParams(selectedStream), streams: fallback.allStreams, streamIndex: selectedIndex } : fallback.browserStream;
+  const canPlayInBrowser = server === 2 && server2Url ? true : (selectedStream ? !isHevc : !!fallback.browserStream);
+  const currentBrowserStream = server === 2 && server2Url 
+    ? { url: server2Url, authParams: '', streams: [{ url: server2Url, format: 'm3u8', title: 'Live (Server 2)' }], streamIndex: 0 } 
+    : (selectedStream ? { url: selectedStream.url, authParams: getAuthParams(selectedStream), streams: fallback.allStreams, streamIndex: selectedIndex } : fallback.browserStream);
+
+  const handleSelectServer2 = async () => {
+    if (server2Url) { setServer(2); return; }
+    setFetchingServer2(true);
+    setServer2Error(null);
+    try {
+      const res = await fetch(backendUrl(`/api/sports/server2?title=${encodeURIComponent(fallback.title)}`));
+      const data = await res.json();
+      const streamUrl = data.url || data.playUrl || data.stream || data.play_url || (typeof data === 'string' ? data : null);
+      if (res.ok && streamUrl) {
+        setServer2Url(streamUrl);
+        setServer(2);
+      } else {
+        setServer2Error(data.error || 'Stream not available on Server 2 (may not be live yet)');
+      }
+    } catch (e: any) {
+      setServer2Error(e.message);
+    } finally {
+      setFetchingServer2(false);
+    }
+  };
 
   const copyText = async (label: string, text: string) => {
     await navigator.clipboard.writeText(text);
@@ -293,7 +322,31 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
 
         <div className="stream-summary">
           <div className="stream-title">{fallback.title}</div>
-          {fallback.allStreams && fallback.allStreams.length > 0 ? (
+          
+          {fallback.isLiveSports && (
+            <div className="mb-4 mt-2">
+              <div className="text-sm text-gray-400 mb-2">Select Server:</div>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setServer(1)}
+                  className={`flex-1 py-2 rounded-md font-medium transition-colors ${server === 1 ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                >
+                  Server 1 (Default)
+                </button>
+                <button 
+                  onClick={handleSelectServer2}
+                  disabled={fetchingServer2}
+                  className={`flex-1 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 ${server === 2 ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                >
+                  {fetchingServer2 ? <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span> : null}
+                  Server 2 (Redjoy)
+                </button>
+              </div>
+              {server2Error && <div className="text-red-400 text-xs mt-2">{server2Error}</div>}
+            </div>
+          )}
+
+          {fallback.allStreams && fallback.allStreams.length > 0 && server === 1 ? (
             <>
               <div className="stream-source-list" aria-label="Stream sources">
                 {fallback.allStreams.map((stream, idx) => (
@@ -1525,6 +1578,7 @@ function App() {
                       resolution: 'Live',
                       directUrl: fifaLatestMatch.playPath,
                       vlcUrl: fifaLatestMatch.playPath,
+                      isLiveSports: true,
                       browserStream: {
                         url: fifaLatestMatch.playPath,
                         authParams: '',
@@ -1673,6 +1727,7 @@ function App() {
                           resolution: 'Live',
                           directUrl: streamUrl,
                           vlcUrl: streamUrl,
+                          isLiveSports: true,
                           browserStream: {
                             url: streamUrl,
                             authParams: '',

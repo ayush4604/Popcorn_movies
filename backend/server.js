@@ -358,6 +358,91 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (url.pathname === '/api/sports/server2') {
+      const titleQuery = url.searchParams.get('title') || '';
+      
+      try {
+        const htmlRes = await fetch('https://home.redjoytv.nz/', {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+        });
+        const setCookie = htmlRes.headers.get('set-cookie');
+        let cookie = '';
+        if (setCookie) cookie = setCookie.split(';')[0];
+        const html = await htmlRes.text();
+        
+        const scriptStart = html.indexOf('(function(g){');
+        const scriptEnd = html.indexOf('</script>', scriptStart);
+        if (scriptStart === -1 || scriptEnd === -1) {
+           return json(res, 400, { error: 'Could not find script block' });
+        }
+        let inlineScript = html.substring(scriptStart, scriptEnd);
+        
+        const sandbox = { atob: global.atob };
+        const executeScript = new Function('global', 'window', inlineScript);
+        executeScript(sandbox, sandbox);
+        
+        const aesKeyStr = sandbox._rjtK;
+        const csrfToken = sandbox._rjtT;
+        
+        if (!aesKeyStr || !csrfToken) {
+           return json(res, 400, { error: 'Could not extract Redjoy keys' });
+        }
+        
+        const eventsRes = await fetch('https://home.redjoytv.nz/api.php?action=events', {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': 'https://home.redjoytv.nz/',
+            'x-csrf-token': csrfToken,
+            'Cookie': cookie
+          }
+        });
+        const eventsData = await eventsRes.json();
+        if (!eventsData.enc || !eventsData.iv) {
+           return json(res, 400, { error: 'No enc/iv found in events payload' });
+        }
+        
+        const keyBuffer = Buffer.from(aesKeyStr, 'utf-8');
+        const ivBuffer = Buffer.from(eventsData.iv, 'hex');
+        const encryptedData = Buffer.from(eventsData.enc, 'base64');
+        const decipher = crypto.createDecipheriv('aes-256-cbc', keyBuffer, ivBuffer);
+        let decrypted = decipher.update(encryptedData, undefined, 'utf8');
+        decrypted += decipher.final('utf8');
+        const parsed = JSON.parse(decrypted);
+        
+        // Find matching event
+        const team1 = titleQuery.split(' vs')[0].trim();
+        const event = (parsed.events || []).find((e) => e.title.includes(team1) || team1.includes(e.title.split(' vs')[0]));
+        if (!event) {
+           return json(res, 404, { error: 'Match not found on Server 2 (or not live yet)' });
+        }
+        
+        const keysRes = await fetch(`https://home.redjoytv.nz/api.php?action=keys&gti=${encodeURIComponent(event.gti)}`, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': 'https://home.redjoytv.nz/',
+            'x-csrf-token': csrfToken,
+            'Cookie': cookie
+          }
+        });
+        const keysData = await keysRes.json();
+        if (!keysData.enc || !keysData.iv) {
+           return json(res, 400, { error: keysData.error || 'Failed to fetch keys' });
+        }
+        
+        const keysIvBuffer = Buffer.from(keysData.iv, 'hex');
+        const keysEncryptedData = Buffer.from(keysData.enc, 'base64');
+        const keysDecipher = crypto.createDecipheriv('aes-256-cbc', keyBuffer, keysIvBuffer);
+        let keysDecrypted = keysDecipher.update(keysEncryptedData, undefined, 'utf8');
+        keysDecrypted += keysDecipher.final('utf8');
+        const parsedKeys = JSON.parse(keysDecrypted);
+        
+        return json(res, 200, parsedKeys);
+      } catch (err) {
+        console.error(err);
+        return json(res, 500, { error: err.message });
+      }
+    }
+
     if (url.pathname.startsWith('/cdn/')) {
       proxyMediaRequest(req, res, '/cdn');
       return;
