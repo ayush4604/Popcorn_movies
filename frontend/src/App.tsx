@@ -5,6 +5,63 @@ import type { FilterState } from './api'
 import { MediaPlayer } from 'dashjs'
 import './index.css'
 
+const ROAST_LOADING_MESSAGES = [
+  "Stealing movies faster than your ex stole your Netflix password...",
+  "Loading... unlike your social life, this actually works.",
+  "Fetching movies you'll add to your watchlist and never watch...",
+  "Hold on, we're buffering harder than your last relationship...",
+  "Finding movies... because going outside is overrated.",
+  "Downloading your terrible taste in movies...",
+  "Please wait... even our servers judge your movie choices.",
+  "Loading content you'll scroll past for 30 mins then rewatch The Office...",
+  "Grabbing movies... your popcorn is getting cold btw.",
+  "Fetching films... this is still faster than your Wi-Fi.",
+  "Summoning movies from the shadow realm...",
+  "Our hamsters are running extra fast for you today...",
+  "Loading... go touch some grass while you wait. Just kidding, stay.",
+  "Acquiring cinema... your couch misses you already.",
+  "Raiding the movie vault... Ocean's 11 style.",
+  "Warming up the projector... and your loneliness.",
+  "Beaming movies directly to your eyeballs...",
+  "Convincing the server to share its movie collection...",
+  "Pirating— I mean, totally legally sourcing movies...",
+  "Hold tight, even JARVIS needed a sec sometimes...",
+  "Loading movies you'll fall asleep to in 20 minutes...",
+  "Bribing the internet gods for faster speeds...",
+  "Your movie marathon awaits... and so does your laundry.",
+  "Compiling excuses for why you watched that at 3 AM...",
+  "Dusting off some hidden gems... and some absolute trash.",
+  "Spinning up the movie machine... vroom vroom.",
+  "Negotiating with the content mafia... please stand by.",
+  "This loading screen has more suspense than most thrillers.",
+];
+
+const ROAST_LOADING_MORE = [
+  "You scrolled this far?? Respect.",
+  "More movies incoming... your productivity weeps.",
+  "Fetching more... because you clearly have no plans today.",
+  "Loading more content for your endless void of free time...",
+  "Grabbing more titles... your screen time report is crying.",
+  "Even more movies? You animal.",
+  "Digging deeper into the vault... we admire your commitment.",
+  "Shoveling more movies into your feed... you're welcome.",
+];
+
+function useRotatingMessage(messages: string[], intervalMs = 2500) {
+  const [index, setIndex] = useState(() => Math.floor(Math.random() * messages.length));
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex(prev => {
+        let next;
+        do { next = Math.floor(Math.random() * messages.length); } while (next === prev && messages.length > 1);
+        return next;
+      });
+    }, intervalMs);
+    return () => clearInterval(timer);
+  }, [messages, intervalMs]);
+  return messages[index];
+}
+
 const BACKEND_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
 function backendUrl(path: string): string {
@@ -791,6 +848,8 @@ function App() {
   const [fifaLatestMatch, setFifaLatestMatch] = useState<any>(null)
   const [fifaVoteRank, setFifaVoteRank] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const roastMessage = useRotatingMessage(ROAST_LOADING_MESSAGES);
+  const roastMoreMessage = useRotatingMessage(ROAST_LOADING_MORE, 3000);
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [isFetchingPlay, setIsFetchingPlay] = useState(false)
@@ -1556,7 +1615,7 @@ function App() {
           </div>
         )}
 
-        {loading && <div className="state-panel">Loading movies from MovieBox...</div>}
+        {loading && <div className="state-panel" style={{ fontStyle: 'italic', transition: 'opacity 0.3s ease' }}>{roastMessage}</div>}
         {error && <div className="state-panel error">Error: {error}</div>}
 
         {/* Movie Grid */}
@@ -1853,7 +1912,7 @@ function App() {
             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
               <span className="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Loading...</span>
             </div>
-            <p className="mt-2 text-sm">Loading more movies...</p>
+            <p className="mt-2 text-sm" style={{ fontStyle: 'italic' }}>{roastMoreMessage}</p>
           </div>
         )}
         
