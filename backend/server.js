@@ -252,9 +252,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/filter-items') {
-      const tabId = url.searchParams.get('tabId') || '2';
-      const payload = await movieBoxRequest('GET', `/wefeed-mobile-bff/subject-api/filter-items?tabId=${tabId}&filterItemVer=v3`);
-      json(res, 200, payload.data?.typeList || []);
+      json(res, 200, []);
       return;
     }
 
@@ -267,23 +265,22 @@ const server = http.createServer(async (req, res) => {
       const page = Number(url.searchParams.get('page') || 1);
       const perPage = Number(url.searchParams.get('perPage') || 20);
       
-      const bodyObj = {
-        page,
-        perPage,
-        channelId,
-        country: url.searchParams.get('country') || "All",
-        year: url.searchParams.get('year') || "All",
-        rate: ["0", "10"],
-        sort: url.searchParams.get('sort') || "ForYou"
-      };
-
-      if (channelId === "1" || channelId === "2" || channelId === "0") {
-          bodyObj.classify = url.searchParams.get('classify') || "All";
-          bodyObj.genre = url.searchParams.get('genre') || "All";
+      let payload;
+      // The original /list endpoint was shut down by MovieBox (returns 504).
+      // The new app uses /daily-movie-rec and /trending/v2 instead.
+      if (channelId === "1" || channelId === "2") {
+        payload = await movieBoxRequest('POST', '/wefeed-mobile-bff/subject-api/daily-movie-rec', { page, perPage });
+      } else {
+        payload = await movieBoxRequest('POST', '/wefeed-mobile-bff/subject-api/trending/v2', { 
+          deepLink: '', disablePlaylist: true, latest_events: [], page, perPage 
+        });
       }
       
-      const payload = await movieBoxRequest('POST', '/wefeed-mobile-bff/subject-api/list', bodyObj);
-      json(res, 200, payload.data?.items || []);
+      // Trending returns { type: 1, subject: {...} }, while daily-movie-rec returns items directly.
+      const rawItems = payload.data?.items || [];
+      const normalizedItems = rawItems.map(item => item.subject ? item.subject : item);
+      
+      json(res, 200, normalizedItems);
       return;
     }
 
