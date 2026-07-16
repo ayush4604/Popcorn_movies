@@ -1492,7 +1492,7 @@ function App() {
                 }}
               >
                 <div className="hero-header">
-                  <span className="hero-title">World Cup</span>
+                  <span className="hero-title">World Cup {fifaLatestMatch.matchRound ? `- ${fifaLatestMatch.matchRound}` : ''}</span>
                   {fifaLatestMatch.status === 'MatchEnded' ? (
                     <span className="hero-badge">Finished</span>
                   ) : fifaLatestMatch.status === 'MatchLiving' ? (
@@ -1515,9 +1515,29 @@ function App() {
                   </div>
                 </div>
                 {fifaLatestMatch.status === 'MatchEnded' && (
-                  <div className="match-row-actions" style={{ justifyContent: 'center', marginTop: '16px' }}>
-                    <button className="match-action-btn">Replay 📺</button>
-                    <button className="match-action-btn">Highlights 🎬</button>
+                  <div className="match-row-actions" style={{ justifyContent: 'center', marginTop: '16px' }} onClick={(e) => e.stopPropagation()}>
+                    {fifaLatestMatch.replay && fifaLatestMatch.replay.length > 0 && (
+                      <button className="match-action-btn" onClick={() => {
+                        setVlcFallback({
+                          title: `Replay: ${fifaLatestMatch.team1.name} vs ${fifaLatestMatch.team2.name}`,
+                          format: 'mp4',
+                          resolution: '1080p',
+                          directUrl: fifaLatestMatch.replay[0].path,
+                          vlcUrl: fifaLatestMatch.replay[0].path
+                        });
+                      }}>Replay 📺</button>
+                    )}
+                    {fifaLatestMatch.highlights && fifaLatestMatch.highlights.length > 0 && (
+                      <button className="match-action-btn" onClick={() => {
+                        setVlcFallback({
+                          title: `Highlights: ${fifaLatestMatch.team1.name} vs ${fifaLatestMatch.team2.name}`,
+                          format: 'mp4',
+                          resolution: '1080p',
+                          directUrl: fifaLatestMatch.highlights[0].path,
+                          vlcUrl: fifaLatestMatch.highlights[0].path
+                        });
+                      }}>Highlights 🎬</button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1583,6 +1603,8 @@ function App() {
                     key={uniqueKey} 
                     className="match-row-card"
                     onClick={() => {
+                      if (isEnded) return;
+
                       let streamUrl = match.playPath;
                       if (!streamUrl && match.playSource && match.playSource.length > 0) {
                         const urlMatch = match.playSource[0].path.match(/url=(.*?)&/);
@@ -1604,7 +1626,11 @@ function App() {
                     <div className="match-row-top">
                       <span>{timeString}</span>
                       <span>{match.matchRound || 'World Cup'}</span>
-                      <span>⭐</span>
+                      {match.status === 'MatchLiving' ? (
+                        <span style={{ color: '#ff4d4d', fontWeight: 'bold', animation: 'pulse 2s infinite' }}>Live 🔴</span>
+                      ) : (
+                        <span>⭐</span>
+                      )}
                     </div>
                     
                     <div className="match-row-main">
@@ -1624,9 +1650,29 @@ function App() {
                     </div>
                     
                     {isEnded && (
-                      <div className="match-row-actions">
-                        <button className="match-action-btn">Replay ↺</button>
-                        <button className="match-action-btn">Highlights ▷</button>
+                      <div className="match-row-actions" onClick={(e) => e.stopPropagation()}>
+                        {match.replay && match.replay.length > 0 && (
+                          <button className="match-action-btn" onClick={() => {
+                            setVlcFallback({
+                              title: `Replay: ${match.team1.name} vs ${match.team2.name}`,
+                              format: 'mp4',
+                              resolution: '1080p',
+                              directUrl: match.replay[0].path,
+                              vlcUrl: match.replay[0].path
+                            });
+                          }}>Replay 📺</button>
+                        )}
+                        {match.highlights && match.highlights.length > 0 && (
+                          <button className="match-action-btn" onClick={() => {
+                            setVlcFallback({
+                              title: `Highlights: ${match.team1.name} vs ${match.team2.name}`,
+                              format: 'mp4',
+                              resolution: '1080p',
+                              directUrl: match.highlights[0].path,
+                              vlcUrl: match.highlights[0].path
+                            });
+                          }}>Highlights 🎬</button>
+                        )}
                       </div>
                     )}
                   </div>
