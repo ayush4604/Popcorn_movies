@@ -803,8 +803,8 @@ function App() {
     if (activeTab === 'fifa') {
       const fifaLeagueId = "4186762757372631736";
       fetchPromise = Promise.all([
-        fetch(`https://h5-sport-api.aoneroom.com/wefeed-h5api-bff/sport/aggregate-v1?leagueId=${fifaLeagueId}`).then(r => r.json()),
-        fetch(`https://h5-sport-api.aoneroom.com/wefeed-h5api-bff/live/match-list-v5?leagueId=${fifaLeagueId}`).then(r => r.json())
+        fetch(`/api/sports/aggregate?leagueId=${fifaLeagueId}`).then(r => r.json()),
+        fetch(`/api/sports/match-list?leagueId=${fifaLeagueId}`).then(r => r.json())
       ]).then(([aggregate, matchListRes]) => {
          const allMatches = matchListRes?.data?.list || [];
          return {
@@ -1493,7 +1493,9 @@ function App() {
               >
                 <div className="hero-header">
                   <span className="hero-title">World Cup</span>
-                  {fifaLatestMatch.statusLive === 'Living' || fifaLatestMatch.status === 'MatchLiving' ? (
+                  {fifaLatestMatch.status === 'MatchEnded' ? (
+                    <span className="hero-badge">Finished</span>
+                  ) : fifaLatestMatch.status === 'MatchLiving' ? (
                     <span className="hero-badge live">Live</span>
                   ) : (
                     <span className="hero-badge">Upcoming</span>
@@ -1504,12 +1506,20 @@ function App() {
                     <span className="hero-team-name">{fifaLatestMatch.team1.name}</span>
                     <img src={fifaLatestMatch.team1.avatar} alt={fifaLatestMatch.team1.name} />
                   </div>
-                  <div className="hero-vs">VS</div>
+                  <div className="hero-vs">
+                    {fifaLatestMatch.status === 'MatchEnded' ? `${fifaLatestMatch.team1.score} - ${fifaLatestMatch.team2.score}` : 'VS'}
+                  </div>
                   <div className="hero-team reverse">
                     <span className="hero-team-name">{fifaLatestMatch.team2.name}</span>
                     <img src={fifaLatestMatch.team2.avatar} alt={fifaLatestMatch.team2.name} />
                   </div>
                 </div>
+                {fifaLatestMatch.status === 'MatchEnded' && (
+                  <div className="match-row-actions" style={{ justifyContent: 'center', marginTop: '16px' }}>
+                    <button className="match-action-btn">Replay 📺</button>
+                    <button className="match-action-btn">Highlights 🎬</button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1565,6 +1575,8 @@ function App() {
               {fifaMatches.map((match: any, i: number) => {
                 const uniqueKey = `${match.id}-${i}`;
                 const isEnded = match.status === 'MatchEnded';
+                const matchDate = new Date(parseInt(match.startTime));
+                const timeString = matchDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 
                 return (
                   <div 
@@ -1590,8 +1602,8 @@ function App() {
                     }}
                   >
                     <div className="match-row-top">
-                      <span>06:30</span>
-                      <span>Quarter-finals</span>
+                      <span>{timeString}</span>
+                      <span>{match.matchRound || 'World Cup'}</span>
                       <span>⭐</span>
                     </div>
                     

@@ -342,6 +342,22 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (url.pathname === '/api/sports/aggregate') {
+      const leagueId = url.searchParams.get('leagueId');
+      const response = await fetch(`https://h5-sport-api.aoneroom.com/wefeed-h5api-bff/sport/aggregate-v1?leagueId=${leagueId}`);
+      const payload = await response.json();
+      json(res, 200, payload);
+      return;
+    }
+
+    if (url.pathname === '/api/sports/match-list') {
+      const leagueId = url.searchParams.get('leagueId');
+      const response = await fetch(`https://h5-sport-api.aoneroom.com/wefeed-h5api-bff/live/match-list-v5?leagueId=${leagueId}`);
+      const payload = await response.json();
+      json(res, 200, payload);
+      return;
+    }
+
     if (url.pathname.startsWith('/cdn/')) {
       proxyMediaRequest(req, res, '/cdn');
       return;
