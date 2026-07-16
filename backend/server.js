@@ -145,7 +145,11 @@ function proxyMediaRequest(req, res, routePrefix, authParams = '') {
     return;
   }
 
-  const headers = { 'user-agent': 'com.community.mbox.in/50020080 (Linux; U; Android 14; en_US; V2229A; Build/UQ1A.240205.06031531; Cronet/126.0.6452.4)' };
+  const headers = { 
+    'user-agent': 'Mozilla/5.0 (Linux; Android 14; V2229A Build/UQ1A.240205.06031531; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.6367.82 Safari/537.36',
+    'referer': 'https://sportsnow.top/',
+    'x-requested-with': 'com.community.mbox.in'
+  };
   if (req.headers.range) {
     headers.range = req.headers.range;
   }
