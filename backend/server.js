@@ -9,12 +9,12 @@ const API_BASE_HEADERS = {
   'x-play-mode': '2',
   'x-family-mode': '0',
   'x-content-mode': '0',
-  'x-client-status': '1',
+  'x-client-status': '0',
   'X-Forwarded-For': '103.119.165.10',
   'X-Real-IP': '103.119.165.10',
   'CF-Connecting-IP': '103.119.165.10',
-  authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjIxNTM1NzgzMjg0NjMxMzY1OTIsImV4cCI6MTc5MTM1OTY0OCwiaWF0IjoxNzgzNTgzMzQ4fQ.piIbpdfhG3t8rz7rRFssiO3eqHtq6der3nOyzTyh9XU',
-  'x-client-info': '{"package_name":"com.community.mbox.in","version_name":"3.0.11.1230.03","version_code":50020080,"os":"android","os_version":"14","install_ch":"google-play","device_id":"70556139be024c59d04661c0a2502499","install_store":"gp","gaid":"1a8144c7-c3b6-4d10-a57e-7aaace20211d","brand":"OnePlus","model":"HD1910","system_language":"en","net":"NETWORK_WIFI","region":"IN","timezone":"Asia/Kolkata","sp_code":"","X-Play-Mode":"2","X-Family-Mode":"0","X-Content-Mode":"0"}',
+  authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjI4NDg1OTU5ODM2MTU4MDkzNjAsImV4cCI6MTc5MTk3MTUxOSwiaWF0IjoxNzg0MTk1MjE5fQ.nXRWygmT0f8CiTtf_Zqmy5saaMPN3CBr7fwyiHXPnrs',
+  'x-client-info': '{"package_name":"com.community.mbox.in","version_name":"3.0.11.1230.03","version_code":50020080,"os":"android","os_version":"14","install_ch":"google-play","device_id":"15f62e1851f5cdfaf95325122eeb52cb","install_store":"gp","gaid":"eff84d42-340f-4e5b-a56d-4e48d91393ae","brand":"vivo","model":"V2229A","system_language":"en","net":"NETWORK_WIFI","region":"US","timezone":"Asia/Kolkata","sp_code":"","X-Play-Mode":"2","X-Family-Mode":"0","X-Content-Mode":"0"}',
 };
 
 function json(res, statusCode, payload) {
@@ -63,7 +63,7 @@ async function movieBoxRequest(method, path, bodyObject = null) {
     headers: {
       ...API_BASE_HEADERS,
       accept,
-      'user-agent': 'okhttp/4.12.0',
+      'user-agent': 'com.community.mbox.in/50020080 (Linux; U; Android 14; en_US; V2229A; Build/UQ1A.240205.06031531; Cronet/126.0.6452.4)',
       'x-tr-signature': signature,
       ...(body ? { 'content-type': contentType } : {}),
     },
@@ -145,7 +145,7 @@ function proxyMediaRequest(req, res, routePrefix, authParams = '') {
     return;
   }
 
-  const headers = { 'user-agent': 'okhttp/4.12.0' };
+  const headers = { 'user-agent': 'com.community.mbox.in/50020080 (Linux; U; Android 14; en_US; V2229A; Build/UQ1A.240205.06031531; Cronet/126.0.6452.4)' };
   if (req.headers.range) {
     headers.range = req.headers.range;
   }
@@ -252,7 +252,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/filter-items') {
-      json(res, 200, []);
+      const tabId = url.searchParams.get('tabId') || '2';
+      const payload = await movieBoxRequest('GET', `/wefeed-mobile-bff/subject-api/filter-items?tabId=${tabId}&filterItemVer=v3`);
+      json(res, 200, payload.data?.typeList || []);
       return;
     }
 
@@ -265,22 +267,23 @@ const server = http.createServer(async (req, res) => {
       const page = Number(url.searchParams.get('page') || 1);
       const perPage = Number(url.searchParams.get('perPage') || 20);
       
-      let payload;
-      // The original /list endpoint was shut down by MovieBox (returns 504).
-      // The new app uses /daily-movie-rec and /trending/v2 instead.
-      if (channelId === "1" || channelId === "2") {
-        payload = await movieBoxRequest('POST', '/wefeed-mobile-bff/subject-api/daily-movie-rec', { page, perPage });
-      } else {
-        payload = await movieBoxRequest('POST', '/wefeed-mobile-bff/subject-api/trending/v2', { 
-          deepLink: '', disablePlaylist: true, latest_events: [], page, perPage 
-        });
+      const bodyObj = {
+        page,
+        perPage,
+        channelId,
+        country: url.searchParams.get('country') || "All",
+        year: url.searchParams.get('year') || "All",
+        rate: ["0", "10"],
+        sort: url.searchParams.get('sort') || "ForYou"
+      };
+
+      if (channelId === "1" || channelId === "2" || channelId === "0") {
+          bodyObj.classify = url.searchParams.get('classify') || "All";
+          bodyObj.genre = url.searchParams.get('genre') || "All";
       }
       
-      // Trending returns { type: 1, subject: {...} }, while daily-movie-rec returns items directly.
-      const rawItems = payload.data?.items || [];
-      const normalizedItems = rawItems.map(item => item.subject ? item.subject : item);
-      
-      json(res, 200, normalizedItems);
+      const payload = await movieBoxRequest('POST', '/wefeed-mobile-bff/subject-api/list', bodyObj);
+      json(res, 200, payload.data?.items || []);
       return;
     }
 
