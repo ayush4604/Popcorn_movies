@@ -807,10 +807,19 @@ function App() {
         fetch(`/api/sports/match-list?leagueId=${fifaLeagueId}`).then(r => r.json())
       ]).then(([aggregate, matchListRes]) => {
          const allMatches = matchListRes?.data?.list || [];
+         const filtered = allMatches.filter((m: any) => String(m.leagueId) === fifaLeagueId);
+         filtered.sort((a: any, b: any) => {
+           const statusOrder: any = { 'MatchLiving': 0, 'MatchNotStart': 1, 'MatchEnded': 2 };
+           const orderA = statusOrder[a.status] ?? 99;
+           const orderB = statusOrder[b.status] ?? 99;
+           if (orderA !== orderB) return orderA - orderB;
+           if (a.status === 'MatchEnded') return parseInt(b.startTime) - parseInt(a.startTime);
+           return parseInt(a.startTime) - parseInt(b.startTime);
+         });
          return {
            isFifa: true,
            aggregate: aggregate?.data || {},
-           matchList: allMatches.filter((m: any) => String(m.leagueId) === fifaLeagueId)
+           matchList: filtered
          }
       });
     } else if (searchQuery.trim() !== '') {
@@ -888,6 +897,35 @@ function App() {
       isFetchingRef.current = false;
     }
   }, [searchQuery, activeTab, currentFilters, page])
+
+  // Polling effect for live sports data
+  useEffect(() => {
+    if (activeTab !== 'fifa') return;
+    
+    const interval = setInterval(() => {
+      const fifaLeagueId = "4186762757372631736";
+      Promise.all([
+        fetch(`/api/sports/aggregate?leagueId=${fifaLeagueId}`).then(r => r.json()),
+        fetch(`/api/sports/match-list?leagueId=${fifaLeagueId}`).then(r => r.json())
+      ]).then(([aggregate, matchListRes]) => {
+         setFifaLatestMatch(aggregate?.data?.latestMatch || null);
+         const allMatches = matchListRes?.data?.list || [];
+         const filtered = allMatches.filter((m: any) => String(m.leagueId) === fifaLeagueId);
+         filtered.sort((a: any, b: any) => {
+           const statusOrder: any = { 'MatchLiving': 0, 'MatchNotStart': 1, 'MatchEnded': 2 };
+           const orderA = statusOrder[a.status] ?? 99;
+           const orderB = statusOrder[b.status] ?? 99;
+           if (orderA !== orderB) return orderA - orderB;
+           if (a.status === 'MatchEnded') return parseInt(b.startTime) - parseInt(a.startTime);
+           return parseInt(a.startTime) - parseInt(b.startTime);
+         });
+         setFifaMatches(filtered);
+         setFifaVoteRank(aggregate?.data?.leagueVoteRank || []);
+      }).catch(console.error);
+    }, 30000);
+    
+    return () => clearInterval(interval);
+  }, [activeTab]);
 
   // IntersectionObserver for robust infinite scrolling
   const loaderRef = useRef<HTMLDivElement>(null);
