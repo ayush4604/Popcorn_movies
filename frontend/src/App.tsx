@@ -795,6 +795,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isFetchingPlay, setIsFetchingPlay] = useState(false)
   const [activeTab, setActiveTab] = useState<TabType>('home')
+  const [showFifaPromo, setShowFifaPromo] = useState(() => !sessionStorage.getItem('fifaPromoSeen'))
   
   // UI State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
@@ -1214,6 +1215,42 @@ function App() {
           onClose={() => setPlayingVideo(null)}
         />
       )}
+
+      {showFifaPromo && (
+        <div className="modal-backdrop" style={{ zIndex: 10000 }}>
+          <div className="bg-gray-900 rounded-xl overflow-hidden max-w-md w-full mx-4 shadow-2xl border border-gray-800 relative" style={{ animation: 'fadeIn 0.3s ease-out' }}>
+            <button 
+              onClick={() => {
+                sessionStorage.setItem('fifaPromoSeen', 'true');
+                setShowFifaPromo(false);
+              }}
+              className="absolute top-3 right-3 bg-black bg-opacity-50 hover:bg-opacity-80 text-white rounded-full p-2 transition-all z-10"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            <img src="/fifa-promo.png" alt="Spain vs Argentina - 2026 World Cup Final" className="w-full object-cover" style={{ maxHeight: '320px' }} />
+            <div className="p-5 text-center">
+              <h2 className="text-xl font-bold text-white mb-1">🏆 2026 FIFA World Cup Final</h2>
+              <p className="text-gray-400 mb-4 text-sm">Spain vs Argentina — July 19 • Watch it LIVE on Popcorn Movies!</p>
+              <button 
+                onClick={() => {
+                  sessionStorage.setItem('fifaPromoSeen', 'true');
+                  setShowFifaPromo(false);
+                  setActiveTab('fifa');
+                  setSearchQuery('');
+                  setPage(1);
+                  setHasMore(true);
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full bg-[#00ff88] text-black font-bold py-3 px-4 rounded-lg hover:bg-[#00cc66] transition-colors shadow-[0_0_15px_rgba(0,255,136,0.3)]"
+              >
+                WATCH NOW
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {vlcFallback && (
         <VlcFallbackDialog 
           fallback={vlcFallback} 
