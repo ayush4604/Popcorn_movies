@@ -1914,6 +1914,19 @@ button {
   border: 1px solid rgba(255,255,255,0.1);
 }
 
+.hero-badge.live {
+  background: #ff3b30;
+  color: #fff;
+  font-weight: 600;
+  animation: pulse-live 2s infinite;
+}
+
+@keyframes pulse-live {
+  0% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
 .hero-teams {
   display: flex;
   justify-content: center;

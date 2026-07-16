@@ -1476,10 +1476,28 @@ function App() {
             
             {/* Hero Featured Match */}
             {fifaLatestMatch && (
-              <div className="hero-match-card">
+              <div 
+                className="hero-match-card"
+                style={{ cursor: fifaLatestMatch.playPath ? 'pointer' : 'default' }}
+                onClick={() => {
+                  if (fifaLatestMatch.playPath) {
+                    setVlcFallback({
+                      title: `${fifaLatestMatch.team1.name} vs ${fifaLatestMatch.team2.name}`,
+                      format: 'm3u8',
+                      resolution: 'Live',
+                      directUrl: fifaLatestMatch.playPath,
+                      vlcUrl: fifaLatestMatch.playPath
+                    });
+                  }
+                }}
+              >
                 <div className="hero-header">
                   <span className="hero-title">World Cup</span>
-                  <span className="hero-badge">Upcoming</span>
+                  {fifaLatestMatch.statusLive === 'Living' || fifaLatestMatch.status === 'MatchLiving' ? (
+                    <span className="hero-badge live">Live</span>
+                  ) : (
+                    <span className="hero-badge">Upcoming</span>
+                  )}
                 </div>
                 <div className="hero-teams">
                   <div className="hero-team">
