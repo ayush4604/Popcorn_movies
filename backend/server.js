@@ -130,11 +130,18 @@ function proxyMediaRequest(req, res, routePrefix, authParams = '') {
   const allQueries = [query, authParams].filter(Boolean).join('&');
   const queryParams = new URLSearchParams(allQueries);
   let cookieHeader = '';
-  
-  if (queryParams.has('Auth')) {
-    cookieHeader = queryParams.get('Auth');
-    queryParams.delete('Auth');
-  }
+    if (queryParams.has('Auth')) {
+      cookieHeader = queryParams.get('Auth');
+      queryParams.delete('Auth');
+    }
+    
+    if (queryParams.has('Policy') && queryParams.has('Signature')) {
+      cookieHeader = ['Policy', 'Signature', 'Key-Pair-Id']
+        .filter(k => queryParams.has(k))
+        .map(k => `CloudFront-${k}=${queryParams.get(k)}`)
+        .join('; ');
+      ['Policy', 'Signature', 'Key-Pair-Id'].forEach(k => queryParams.delete(k));
+    }
 
   const finalQuery = queryParams.toString();
   const path = `/${pathParts.join('/')}${finalQuery ? `?${finalQuery}` : ''}`;
@@ -145,11 +152,7 @@ function proxyMediaRequest(req, res, routePrefix, authParams = '') {
     return;
   }
 
-  const headers = { 
-    'user-agent': 'Mozilla/5.0 (Linux; Android 14; V2229A Build/UQ1A.240205.06031531; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.6367.82 Safari/537.36',
-    'referer': 'https://sportsnow.top/',
-    'x-requested-with': 'com.community.mbox.in'
-  };
+  const headers = { 'user-agent': host.includes('macdn') ? 'Mozilla/5.0 (Linux; Android 14; V2229A Build/UQ1A.240205.06031531; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.6367.82 Safari/537.36' : 'Dalvik/2.1.0 (Linux; U; Android 14; V2229A Build/UQ1A.240205.06031531)' }; if (host.includes('macdn')) { headers.referer = 'https://sportsnow.top/'; headers['x-requested-with'] = 'com.community.mbox.in'; }
   if (req.headers.range) {
     headers.range = req.headers.range;
   }
