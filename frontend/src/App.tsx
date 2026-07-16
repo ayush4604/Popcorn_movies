@@ -451,7 +451,7 @@ function VideoPlayer({
   const [activeMenu, setActiveMenu] = useState<MenuName>(null);
 
   const isDash = url.includes('.mpd');
-  const playbackUrl = appendAuthParams(toProxiedCdnUrl(url), authParams);
+  const playbackUrl = toVlcProxyUrl(url, authParams);
 
   useEffect(() => {
     if (!videoRef.current) return;
@@ -493,7 +493,7 @@ function VideoPlayer({
     playerRef.current = player;
     
     player.addRequestInterceptor((request: any) => {
-      request.url = appendAuthParams(toProxiedCdnUrl(request.url), authParams);
+      request.url = toVlcProxyUrl(request.url, authParams);
       return Promise.resolve(request);
     });
     
