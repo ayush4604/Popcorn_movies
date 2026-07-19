@@ -9,7 +9,7 @@ const API_BASE_HEADERS = {
   'x-play-mode': '2',
   'x-family-mode': '0',
   'x-content-mode': '0',
-  'x-client-status': '0',
+  'x-client-status': '1',
   'X-Forwarded-For': '103.119.165.10',
   'X-Real-IP': '103.119.165.10',
   'CF-Connecting-IP': '103.119.165.10',
@@ -254,27 +254,14 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const encodedKeyword = encodeURIComponent(keyword);
-      const attempts = [
-        () => tryMovieBoxRequest('POST', '/wefeed-mobile-bff/subject-api/search/v2', { page, perPage, keyword }),
-        () => tryMovieBoxRequest('POST', '/wefeed-mobile-bff/subject-api/search/v2', { page, perPage, key: keyword }),
-        () => tryMovieBoxRequest('GET', `/wefeed-mobile-bff/subject-api/search/v2?keyword=${encodedKeyword}&page=${page}&perPage=${perPage}`),
-        () => tryMovieBoxRequest('GET', `/wefeed-mobile-bff/subject-api/search/v2?key=${encodedKeyword}&page=${page}&perPage=${perPage}`),
-        () => tryMovieBoxRequest('GET', `/wefeed-mobile-bff/subject-api/search?keyword=${encodedKeyword}&page=${page}&perPage=${perPage}`),
-      ];
+      const payload = await tryMovieBoxRequest('POST', '/wefeed-mobile-bff/subject-api/search/v2', { page, perPage, keyword });
 
-      for (const attempt of attempts) {
-        const payload = await attempt();
-        if (!payload) continue;
-
+      if (payload) {
         const subjects = extractSearchSubjects(payload);
-        if (subjects.length > 0) {
-          json(res, 200, subjects);
-          return;
-        }
+        json(res, 200, subjects);
+      } else {
+        json(res, 200, []);
       }
-
-      json(res, 200, []);
       return;
     }
 
