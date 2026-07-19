@@ -150,8 +150,14 @@ function toBase64Url(value: string): string {
 function toVlcProxyUrl(url: string, authParams: string): string {
   try {
     const parsed = new URL(url, window.location.href);
-    const authToken = toBase64Url(authParams);
     const backendOrigin = BACKEND_BASE_URL || window.location.origin;
+    
+    // Do not proxy Rumble streams (they have open CORS) or URLs that are already hitting our backend
+    if (parsed.hostname.includes('rumble.cloud') || parsed.origin === backendOrigin) {
+      return url;
+    }
+    
+    const authToken = toBase64Url(authParams);
     return `${backendOrigin}/vlc/${authToken}/${parsed.hostname}${parsed.pathname}${parsed.search}`;
   } catch {
     return appendAuthParams(toProxiedCdnUrl(url), authParams);
