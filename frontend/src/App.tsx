@@ -80,6 +80,7 @@ interface PlayingVideo {
   streams: any[];
   streamIndex: number;
   startTime?: number;
+  iframeUrl?: string;
 }
 
 interface VlcFallback {
@@ -334,9 +335,9 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const selectedQuality = availableQualities[selectedMp4Index] || availableQualities[0] || '';
   const selectedMp4 = mp4Links.find((link) => getResolutionNumber(link.label) === getResolutionNumber(selectedQuality));
   
-  const canPlayInBrowser = server === 3 ? false : (server === 2 && server2Url ? true : (selectedStream ? !isHevc : !!fallback.browserStream));
+  const canPlayInBrowser = server === 3 ? true : (server === 2 && server2Url ? true : (selectedStream ? !isHevc : !!fallback.browserStream));
   const currentBrowserStream = server === 3
-    ? null
+    ? { iframeUrl: server3Url, title: 'Live (Server 3 - Hindi)' }
     : (server === 2 && server2Url 
       ? { url: server2Url, authParams: '', streams: [{ url: server2Url, format: 'm3u8', title: 'Live (Server 2)' }], streamIndex: 0 } 
       : (selectedStream ? { url: selectedStream.url, authParams: getAuthParams(selectedStream), streams: fallback.allStreams, streamIndex: selectedIndex } : fallback.browserStream));
@@ -1316,15 +1317,26 @@ function App() {
   return (
     <div className="app-shell">
       {playingVideo && (
-        <VideoPlayer
-          url={playingVideo.url}
-          authParams={playingVideo.authParams}
-          streams={playingVideo.streams}
-          streamIndex={playingVideo.streamIndex}
-          startTime={playingVideo.startTime}
-          onQualityChange={handleQualityChange}
-          onClose={() => setPlayingVideo(null)}
-        />
+        playingVideo.iframeUrl ? (
+          <div className="fixed inset-0 z-[1000] bg-black flex flex-col">
+            <div className="flex justify-end p-4 absolute top-0 right-0 z-10 pointer-events-none">
+              <button onClick={() => setPlayingVideo(null)} className="bg-black/50 hover:bg-black/80 text-white rounded-full p-2 pointer-events-auto backdrop-blur-sm transition-all">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            <iframe src={playingVideo.iframeUrl} className="w-full h-full border-0" allowFullScreen allow="autoplay; encrypted-media"></iframe>
+          </div>
+        ) : (
+          <VideoPlayer
+            url={playingVideo.url}
+            authParams={playingVideo.authParams}
+            streams={playingVideo.streams}
+            streamIndex={playingVideo.streamIndex}
+            startTime={playingVideo.startTime}
+            onQualityChange={handleQualityChange}
+            onClose={() => setPlayingVideo(null)}
+          />
+        )
       )}
 
       {showFifaPromo && (
