@@ -5,6 +5,11 @@ import type { FilterState } from './api'
 import { MediaPlayer } from 'dashjs'
 import './index.css'
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🚧 MAINTENANCE MODE — set to `false` to restore the app
+const MAINTENANCE_MODE = true;
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 const ROAST_LOADING_MESSAGES = [
   "Stealing movies faster than your ex stole your Netflix password...",
   "Loading... unlike your social life, this actually works.",
@@ -1261,6 +1266,10 @@ function App() {
     })
     .slice(0, 8);
 
+  if (MAINTENANCE_MODE) {
+    return <MaintenancePage />;
+  }
+
   return (
     <div className="app-shell">
       {playingVideo && (
@@ -2271,6 +2280,236 @@ function App() {
       )}
     </div>
   )
+}
+
+/* ─────────────────────────────────────────────────────────────
+   🍿 Under Maintenance Page
+   ───────────────────────────────────────────────────────────── */
+function MaintenancePage() {
+  const [dots, setDots] = useState('');
+  useEffect(() => {
+    const id = setInterval(() => setDots(d => d.length >= 3 ? '' : d + '.'), 500);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'linear-gradient(145deg, #0a0c14 0%, #0f1117 40%, #161a26 100%)',
+      position: 'relative',
+      overflow: 'hidden',
+      fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
+    }}>
+      {/* Animated background orbs */}
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+        <div style={{
+          position: 'absolute', width: 600, height: 600, borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(225,29,46,0.15) 0%, transparent 70%)',
+          top: '-200px', right: '-150px',
+          animation: 'maintenanceFloat 8s ease-in-out infinite',
+        }} />
+        <div style={{
+          position: 'absolute', width: 500, height: 500, borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(69,212,200,0.1) 0%, transparent 70%)',
+          bottom: '-180px', left: '-100px',
+          animation: 'maintenanceFloat 10s ease-in-out infinite reverse',
+        }} />
+        <div style={{
+          position: 'absolute', width: 300, height: 300, borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(245,184,75,0.08) 0%, transparent 70%)',
+          top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+          animation: 'maintenancePulse 4s ease-in-out infinite',
+        }} />
+        {/* Floating popcorn kernels */}
+        {[...Array(12)].map((_, i) => (
+          <div key={i} style={{
+            position: 'absolute',
+            fontSize: ['🍿', '🌽', '⚙️', '🔧', '✨', '🎬'][i % 6] ? '24px' : '20px',
+            left: `${8 + (i * 7.5) % 90}%`,
+            top: `${5 + (i * 13) % 85}%`,
+            opacity: 0.12 + (i % 3) * 0.06,
+            animation: `maintenanceKernel ${6 + i * 0.7}s ease-in-out infinite`,
+            animationDelay: `${i * 0.4}s`,
+          }}>
+            {['🍿', '🌽', '⚙️', '🔧', '✨', '🎬'][i % 6]}
+          </div>
+        ))}
+      </div>
+
+      {/* Noise texture overlay */}
+      <div style={{
+        position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.03,
+        backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E")`,
+      }} />
+
+      {/* Main content card */}
+      <div style={{
+        position: 'relative', zIndex: 10,
+        textAlign: 'center', maxWidth: 520, padding: '0 24px',
+        animation: 'maintenanceFadeUp 1s ease-out',
+      }}>
+        {/* Animated gear icon */}
+        <div style={{
+          width: 100, height: 100, margin: '0 auto 32px',
+          borderRadius: '50%',
+          background: 'linear-gradient(135deg, rgba(225,29,46,0.15), rgba(245,184,75,0.1))',
+          border: '1px solid rgba(225,29,46,0.2)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 0 60px rgba(225,29,46,0.15), inset 0 0 30px rgba(225,29,46,0.05)',
+          animation: 'maintenancePulse 3s ease-in-out infinite',
+        }}>
+          <span style={{ fontSize: 44, animation: 'maintenanceSpin 4s linear infinite', display: 'block' }}>⚙️</span>
+        </div>
+
+        {/* Logo / Brand */}
+        <h1 style={{
+          fontSize: 32, fontWeight: 800, margin: '0 0 8px',
+          background: 'linear-gradient(135deg, #ff4d5f, #f5b84b)',
+          WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+          letterSpacing: '-0.02em',
+        }}>
+          🍿 Popcorn Movies
+        </h1>
+
+        {/* Status badge */}
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          padding: '6px 16px', borderRadius: 20,
+          background: 'rgba(245,184,75,0.1)',
+          border: '1px solid rgba(245,184,75,0.25)',
+          marginBottom: 28,
+        }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: '#f5b84b',
+            boxShadow: '0 0 8px rgba(245,184,75,0.6)',
+            animation: 'maintenanceBlink 1.5s ease-in-out infinite',
+          }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#f5b84b', letterSpacing: '0.05em', textTransform: 'uppercase' as const }}>
+            Under Maintenance
+          </span>
+        </div>
+
+        {/* Main message */}
+        <h2 style={{
+          fontSize: 26, fontWeight: 700, color: '#ffffff', margin: '0 0 14px',
+          lineHeight: 1.3,
+        }}>
+          We're Cooking Something
+          <br />
+          <span style={{ color: '#ff4d5f' }}>Delicious</span> 🍳
+        </h2>
+        <p style={{
+          fontSize: 16, color: '#a8b1c0', lineHeight: 1.7,
+          margin: '0 0 36px',
+        }}>
+          Our servers are getting a fresh batch of popcorn and upgrades.
+          <br />
+          We'll be back before your popcorn gets cold!
+        </p>
+
+        {/* Progress bar */}
+        <div style={{
+          width: '100%', maxWidth: 320, margin: '0 auto 36px',
+          height: 4, borderRadius: 4,
+          background: 'rgba(255,255,255,0.06)',
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            height: '100%', borderRadius: 4,
+            background: 'linear-gradient(90deg, #e11d2e, #f5b84b, #45d4c8, #e11d2e)',
+            backgroundSize: '300% 100%',
+            animation: 'maintenanceProgress 2.5s linear infinite',
+          }} />
+        </div>
+
+        {/* Animated working text */}
+        <p style={{
+          fontSize: 14, color: '#636e80', fontFamily: 'monospace',
+          letterSpacing: '0.05em',
+        }}>
+          working on it{dots}
+        </p>
+
+        {/* Social / contact links */}
+        <div style={{
+          marginTop: 48, paddingTop: 28,
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+          display: 'flex', justifyContent: 'center', gap: 24,
+        }}>
+          {[
+            { label: 'Telegram', emoji: '💬', url: 'https://t.me/AyushPMP' },
+            { label: 'GitHub', emoji: '🐙', url: 'https://github.com/AyushPMP' },
+          ].map(link => (
+            <a
+              key={link.label}
+              href={link.url}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                fontSize: 13, color: '#636e80',
+                textDecoration: 'none',
+                padding: '8px 16px', borderRadius: 10,
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                transition: 'all 0.25s ease',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.08)';
+                (e.currentTarget as HTMLElement).style.color = '#ffffff';
+                (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.15)';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)';
+                (e.currentTarget as HTMLElement).style.color = '#636e80';
+                (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.06)';
+              }}
+            >
+              <span>{link.emoji}</span>
+              {link.label}
+            </a>
+          ))}
+        </div>
+      </div>
+
+      {/* Keyframe animations */}
+      <style>{`
+        @keyframes maintenanceFloat {
+          0%, 100% { transform: translateY(0) scale(1); }
+          50% { transform: translateY(-30px) scale(1.05); }
+        }
+        @keyframes maintenancePulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.7; transform: scale(1.08); }
+        }
+        @keyframes maintenanceSpin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes maintenanceFadeUp {
+          from { opacity: 0; transform: translateY(30px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes maintenanceBlink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
+        }
+        @keyframes maintenanceProgress {
+          from { background-position: 0% 0%; }
+          to { background-position: 300% 0%; }
+        }
+        @keyframes maintenanceKernel {
+          0%, 100% { transform: translateY(0) rotate(0deg); }
+          25% { transform: translateY(-15px) rotate(8deg); }
+          75% { transform: translateY(10px) rotate(-5deg); }
+        }
+      `}</style>
+    </div>
+  );
 }
 
 export default App

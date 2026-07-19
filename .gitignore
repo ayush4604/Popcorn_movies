@@ -26,3 +26,5 @@ dist-ssr
 *.har
 api-traffic.har/
 *.apk
+
+mobile/
