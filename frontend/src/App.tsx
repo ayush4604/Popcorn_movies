@@ -275,10 +275,7 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const [selectedMp4Index, setSelectedMp4Index] = useState(0);
   const [fetchingMp4s, setFetchingMp4s] = useState(false);
 
-  const [server, setServer] = useState<1 | 2 | 3>(1);
-  const [server2Error, setServer2Error] = useState<string | null>(null);
-  const [fetchingServer2, setFetchingServer2] = useState(false);
-  const [server2Url, setServer2Url] = useState<string | null>(null);
+  const [server, setServer] = useState(3);
 
   useEffect(() => {
     if (!fallback.subjectId) return;
@@ -324,7 +321,7 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const vlcAuthParams = selectedStream ? getAuthParams(selectedStream) : '';
   const server3Url = 'https://home.redjoytv.nz/plyr_player.php?b=aHR0cHM6Ly9odWdoLmNkbi5ydW1ibGUuY2xvdWQvbGl2ZS9yOHd2bDM1ay9zbG90LTUvaXdqNy1teHltL2NodW5rbGlzdC5tM3U4&title=Hindi+Stream';
   
-  const currentVlcUrl = server === 3 ? server3Url : (server === 2 && server2Url ? server2Url : (selectedStream ? toVlcProxyUrl(selectedStream.url, vlcAuthParams) : fallback.vlcUrl));
+  const currentVlcUrl = server === 3 ? server3Url : (selectedStream ? toVlcProxyUrl(selectedStream.url, vlcAuthParams) : fallback.vlcUrl);
   const resolutionOptions = selectedStream ? getResolutionOptions(selectedStream) : [];
   const availableQualities = [
     ...new Set([
@@ -335,33 +332,10 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const selectedQuality = availableQualities[selectedMp4Index] || availableQualities[0] || '';
   const selectedMp4 = mp4Links.find((link) => getResolutionNumber(link.label) === getResolutionNumber(selectedQuality));
   
-  const canPlayInBrowser = server === 3 ? true : (server === 2 && server2Url ? true : (selectedStream ? !isHevc : !!fallback.browserStream));
+  const canPlayInBrowser = server === 3 ? true : (selectedStream ? !isHevc : !!fallback.browserStream);
   const currentBrowserStream = server === 3
     ? { iframeUrl: server3Url, title: 'Live (Server 3 - Hindi)' }
-    : (server === 2 && server2Url 
-      ? { url: server2Url, authParams: '', streams: [{ url: server2Url, format: 'm3u8', title: 'Live (Server 2)' }], streamIndex: 0 } 
-      : (selectedStream ? { url: selectedStream.url, authParams: getAuthParams(selectedStream), streams: fallback.allStreams, streamIndex: selectedIndex } : fallback.browserStream));
-
-  const handleSelectServer2 = async () => {
-    if (server2Url) { setServer(2); return; }
-    setFetchingServer2(true);
-    setServer2Error(null);
-    try {
-      const res = await fetch(backendUrl(`/api/sports/server2?title=${encodeURIComponent(fallback.title)}`));
-      const data = await res.json();
-      const streamUrl = data.url || data.playUrl || data.stream || data.play_url || (typeof data === 'string' ? data : null);
-      if (res.ok && streamUrl) {
-        setServer2Url(streamUrl);
-        setServer(2);
-      } else {
-        setServer2Error(data.error || 'Stream not available on Server 2 (may not be live yet)');
-      }
-    } catch (e: any) {
-      setServer2Error(e.message);
-    } finally {
-      setFetchingServer2(false);
-    }
-  };
+    : (selectedStream ? { url: selectedStream.url, authParams: getAuthParams(selectedStream), streams: fallback.allStreams, streamIndex: selectedIndex } : fallback.browserStream);
 
   const copyText = async (label: string, text: string) => {
     await navigator.clipboard.writeText(text);
@@ -405,27 +379,13 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
               <div className="text-sm text-gray-400 mb-2">Select Server:</div>
               <div className="flex flex-wrap gap-2">
                 <button 
-                  onClick={() => setServer(1)}
-                  className={`flex-1 py-2 px-1 rounded-md font-medium transition-colors text-sm ${server === 1 ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
-                >
-                  Server 1 (Default)
-                </button>
-                <button 
-                  onClick={handleSelectServer2}
-                  disabled={fetchingServer2}
-                  className={`flex-1 py-2 px-1 rounded-md font-medium transition-colors flex items-center justify-center gap-1 text-sm ${server === 2 ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
-                >
-                  {fetchingServer2 ? <span className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full"></span> : null}
-                  Server 2 (Redjoy)
-                </button>
-                <button 
-                  onClick={() => { setServer(3); setServer2Error(null); }}
+                  onClick={() => setServer(3)}
                   className={`flex-1 py-2 px-1 rounded-md font-medium transition-colors text-sm ${server === 3 ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
                 >
                   Server 3 (Hindi)
                 </button>
               </div>
-              {server2Error && <div className="text-red-400 text-xs mt-2">{server2Error}</div>}
+
             </div>
           )}
 
