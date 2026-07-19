@@ -121,6 +121,8 @@ function toProxiedCdnUrl(url: string): string {
   }
 }
 
+const SERVER_3_URL = 'https://home.redjoytv.nz/plyr_player.php?b=aHR0cHM6Ly9odWdoLmNkbi5ydW1ibGUuY2xvdWQvbGl2ZS9yOHd2bDM1ay9zbG90LTUvaXdqNy1teHltL2NodW5rbGlzdC5tM3U4&title=Hindi+Stream';
+
 function appendAuthParams(url: string, authParams: string): string {
   if (!authParams || url.includes('Policy=')) {
     return url;
@@ -319,9 +321,8 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const isHevc = selectedStream ? isHevcStream(selectedStream) : false;
   
   const vlcAuthParams = selectedStream ? getAuthParams(selectedStream) : '';
-  const server3Url = 'https://home.redjoytv.nz/plyr_player.php?b=aHR0cHM6Ly9odWdoLmNkbi5ydW1ibGUuY2xvdWQvbGl2ZS9yOHd2bDM1ay9zbG90LTUvaXdqNy1teHltL2NodW5rbGlzdC5tM3U4&title=Hindi+Stream';
   
-  const currentVlcUrl = server === 3 ? server3Url : (selectedStream ? toVlcProxyUrl(selectedStream.url, vlcAuthParams) : fallback.vlcUrl);
+  const currentVlcUrl = server === 3 ? SERVER_3_URL : (selectedStream ? toVlcProxyUrl(selectedStream.url, vlcAuthParams) : fallback.vlcUrl);
   const resolutionOptions = selectedStream ? getResolutionOptions(selectedStream) : [];
   const availableQualities = [
     ...new Set([
@@ -334,7 +335,7 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   
   const canPlayInBrowser = server === 3 ? true : (selectedStream ? !isHevc : !!fallback.browserStream);
   const currentBrowserStream = server === 3
-    ? { iframeUrl: server3Url, title: 'Live (Server 3 - Hindi)' }
+    ? { url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL }
     : (selectedStream ? { url: selectedStream.url, authParams: getAuthParams(selectedStream), streams: fallback.allStreams, streamIndex: selectedIndex } : fallback.browserStream);
 
   const copyText = async (label: string, text: string) => {
@@ -1156,6 +1157,25 @@ function App() {
 
   const openPlaybackOptions = async (se: string = '0', ep: string = '0') => {
     if (!selectedMovieId || isFetchingPlay) return;
+
+    if (movieDetails?.isLiveSports || selectedMovieId === 'fifa-live') {
+      setVlcFallback({
+        title: movieDetails?.title || 'Live Stream',
+        format: '',
+        resolution: '',
+        directUrl: SERVER_3_URL,
+        vlcUrl: SERVER_3_URL,
+        allStreams: [],
+        browserStream: { url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL },
+        streamIndex: 0,
+        subjectId: selectedMovieId,
+        se,
+        ep,
+        isLiveSports: true
+      });
+      return;
+    }
+
     setIsFetchingPlay(true);
     try {
       const streams = await getPlayInfo(selectedMovieId, se, ep);
@@ -1199,6 +1219,12 @@ function App() {
 
   const handlePlay = async (se: string = '0', ep: string = '0') => {
     if (!selectedMovieId || isFetchingPlay || playingVideo) return;
+
+    if (movieDetails?.isLiveSports || selectedMovieId === 'fifa-live') {
+      setPlayingVideo({ url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL });
+      return;
+    }
+
     setIsFetchingPlay(true);
     try {
       let streams = await getPlayInfo(selectedMovieId, se, ep);
