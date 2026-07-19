@@ -1718,20 +1718,7 @@ function App() {
                 style={{ cursor: fifaLatestMatch.playPath ? 'pointer' : 'default' }}
                 onClick={() => {
                   if (fifaLatestMatch.playPath) {
-                    setVlcFallback({
-                      title: `${fifaLatestMatch.team1.name} vs ${fifaLatestMatch.team2.name}`,
-                      format: 'm3u8',
-                      resolution: 'Live',
-                      directUrl: fifaLatestMatch.playPath,
-                      vlcUrl: fifaLatestMatch.playPath,
-                      isLiveSports: true,
-                      browserStream: {
-                        url: fifaLatestMatch.playPath,
-                        authParams: '',
-                        streams: [{ url: fifaLatestMatch.playPath, format: 'm3u8', title: 'Live' }],
-                        streamIndex: 0
-                      }
-                    });
+                    setPlayingVideo({ url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL });
                   }
                 }}
               >
@@ -1867,20 +1854,7 @@ function App() {
                         if (urlMatch) streamUrl = decodeURIComponent(urlMatch[1]);
                       }
                       if (streamUrl) {
-                        setVlcFallback({
-                          title: `${match.team1.name} vs ${match.team2.name}`,
-                          format: 'm3u8',
-                          resolution: 'Live',
-                          directUrl: streamUrl,
-                          vlcUrl: streamUrl,
-                          isLiveSports: true,
-                          browserStream: {
-                            url: streamUrl,
-                            authParams: '',
-                            streams: [{ url: streamUrl, format: 'm3u8', title: 'Live' }],
-                            streamIndex: 0
-                          }
-                        });
+                        setPlayingVideo({ url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL });
                       } else {
                         alert(`The live stream for ${match.team1.name} vs ${match.team2.name} is not available yet! Please check back closer to kickoff.`);
                       }
