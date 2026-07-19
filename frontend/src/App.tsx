@@ -157,7 +157,9 @@ function toVlcProxyUrl(url: string, authParams: string): string {
       return url;
     }
     
-    const authToken = toBase64Url(authParams);
+    // Use a harmless dummy query param if auth is empty to prevent browser from collapsing the // path segment
+    const safeAuthParams = authParams || 'dummy=1';
+    const authToken = toBase64Url(safeAuthParams);
     return `${backendOrigin}/vlc/${authToken}/${parsed.hostname}${parsed.pathname}${parsed.search}`;
   } catch {
     return appendAuthParams(toProxiedCdnUrl(url), authParams);
