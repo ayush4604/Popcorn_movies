@@ -321,7 +321,7 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const isHevc = selectedStream ? isHevcStream(selectedStream) : false;
   
   const vlcAuthParams = selectedStream ? getAuthParams(selectedStream) : '';
-  const server3Url = 'https://hugh.cdn.rumble.cloud/live/r8wvl35k/slot-5/iwj7-mxym/chunklist.m3u8';
+  const server3Url = 'https://home.redjoytv.nz/plyr_player.php?b=aHR0cHM6Ly9odWdoLmNkbi5ydW1ibGUuY2xvdWQvbGl2ZS9yOHd2bDM1ay9zbG90LTUvaXdqNy1teHltL2NodW5rbGlzdC5tM3U4&title=Hindi+Stream';
   
   const currentVlcUrl = server === 3 ? server3Url : (server === 2 && server2Url ? server2Url : (selectedStream ? toVlcProxyUrl(selectedStream.url, vlcAuthParams) : fallback.vlcUrl));
   const resolutionOptions = selectedStream ? getResolutionOptions(selectedStream) : [];
@@ -334,9 +334,9 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const selectedQuality = availableQualities[selectedMp4Index] || availableQualities[0] || '';
   const selectedMp4 = mp4Links.find((link) => getResolutionNumber(link.label) === getResolutionNumber(selectedQuality));
   
-  const canPlayInBrowser = server === 3 ? true : (server === 2 && server2Url ? true : (selectedStream ? !isHevc : !!fallback.browserStream));
+  const canPlayInBrowser = server === 3 ? false : (server === 2 && server2Url ? true : (selectedStream ? !isHevc : !!fallback.browserStream));
   const currentBrowserStream = server === 3
-    ? { url: server3Url, authParams: '', streams: [{ url: server3Url, format: 'm3u8', title: 'Live (Server 3 - Hindi)' }], streamIndex: 0 }
+    ? null
     : (server === 2 && server2Url 
       ? { url: server2Url, authParams: '', streams: [{ url: server2Url, format: 'm3u8', title: 'Live (Server 2)' }], streamIndex: 0 } 
       : (selectedStream ? { url: selectedStream.url, authParams: getAuthParams(selectedStream), streams: fallback.allStreams, streamIndex: selectedIndex } : fallback.browserStream));
@@ -622,7 +622,7 @@ function VideoPlayer({
           },
           debug: false
         });
-        hlsPlayer.on(Hls.Events.ERROR, (event, data) => {
+        hlsPlayer.on(Hls.Events.ERROR, (_, data) => {
           console.error('HLS Error:', data.type, data.details, data.fatal ? 'FATAL' : '');
           if (data.response && data.response.code) {
              console.error('HLS HTTP Status:', data.response.code);
