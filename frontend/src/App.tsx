@@ -582,12 +582,31 @@ function VideoPlayer({
           xhrSetup: (xhr, u) => {
             xhr.open('GET', toVlcProxyUrl(u, authParams), true);
           },
-          debug: false
+          debug: false,
+          liveSyncDurationCount: 3,
+          liveMaxLatencyDurationCount: 10,
+          enableWorker: true,
+          lowLatencyMode: true
         });
         hlsPlayer.on(Hls.Events.ERROR, (_, data) => {
           console.error('HLS Error:', data.type, data.details, data.fatal ? 'FATAL' : '');
           if (data.response && data.response.code) {
              console.error('HLS HTTP Status:', data.response.code);
+          }
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.log('FATAL network error encountered, trying to recover...');
+                hlsPlayer?.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                console.log('FATAL media error encountered, trying to recover...');
+                hlsPlayer?.recoverMediaError();
+                break;
+              default:
+                hlsPlayer?.destroy();
+                break;
+            }
           }
         });
         hlsPlayer.loadSource(playbackUrl);
