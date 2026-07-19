@@ -152,9 +152,8 @@ function toVlcProxyUrl(url: string, authParams: string): string {
     const parsed = new URL(url, window.location.href);
     const backendOrigin = BACKEND_BASE_URL || window.location.origin;
     
-    // Do not proxy Rumble streams or Server 1 streams (aisports.mobi)
-    // Server 1 blocks HuggingFace proxy IPs with Cloudflare 403 Forbidden.
-    if (parsed.hostname.includes('rumble.cloud') || parsed.hostname.includes('aisports.mobi') || parsed.origin === backendOrigin) {
+    // Do not proxy Rumble streams (they have open CORS) or URLs that are already hitting our backend
+    if (parsed.hostname.includes('rumble.cloud') || parsed.origin === backendOrigin) {
       return url;
     }
     
