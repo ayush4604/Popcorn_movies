@@ -170,7 +170,10 @@ function proxyMediaRequest(req, res, routePrefix, authParams = '') {
         const rewritten = body.split('\n').map(line => {
           const trimmed = line.trim();
           if (trimmed && !trimmed.startsWith('#')) {
-            return `${trimmed}${trimmed.includes('?') ? '&' : '?'}${allQueries}`;
+            if (allQueries && !trimmed.includes(allQueries.split('&')[0])) {
+               return `${trimmed}${trimmed.includes('?') ? '&' : '?'}${allQueries}`;
+            }
+            return trimmed;
           }
           return line;
         }).join('\n');
