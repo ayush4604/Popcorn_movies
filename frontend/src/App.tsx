@@ -619,6 +619,13 @@ function VideoPlayer({
         hlsPlayer = new Hls({
           xhrSetup: (xhr, u) => {
             xhr.open('GET', toVlcProxyUrl(u, authParams), true);
+          },
+          debug: false
+        });
+        hlsPlayer.on(Hls.Events.ERROR, (event, data) => {
+          console.error('HLS Error:', data.type, data.details, data.fatal ? 'FATAL' : '');
+          if (data.response && data.response.code) {
+             console.error('HLS HTTP Status:', data.response.code);
           }
         });
         hlsPlayer.loadSource(playbackUrl);
