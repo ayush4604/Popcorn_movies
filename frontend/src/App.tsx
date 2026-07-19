@@ -121,7 +121,7 @@ function toProxiedCdnUrl(url: string): string {
   }
 }
 
-const SERVER_3_URL = 'https://home.redjoytv.nz/plyr_player.php?b=aHR0cHM6Ly9odWdoLmNkbi5ydW1ibGUuY2xvdWQvbGl2ZS9yOHd2bDM1ay9zbG90LTUvaXdqNy1teHltL2NodW5rbGlzdC5tM3U4&title=Hindi+Stream';
+const SERVER_3_URL = 'https://hugh.cdn.rumble.cloud/live/r8wvl35k/slot-5/iwj7-mxym/chunklist.m3u8';
 
 function appendAuthParams(url: string, authParams: string): string {
   if (!authParams || url.includes('Policy=')) {
@@ -335,7 +335,7 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   
   const canPlayInBrowser = server === 3 ? true : (selectedStream ? !isHevc : !!fallback.browserStream);
   const currentBrowserStream = server === 3
-    ? { url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL }
+    ? { url: SERVER_3_URL, authParams: '', streams: [{ url: SERVER_3_URL, format: 'm3u8', title: 'Live' }], streamIndex: 0 }
     : (selectedStream ? { url: selectedStream.url, authParams: getAuthParams(selectedStream), streams: fallback.allStreams, streamIndex: selectedIndex } : fallback.browserStream);
 
   const copyText = async (label: string, text: string) => {
@@ -1166,7 +1166,7 @@ function App() {
         directUrl: SERVER_3_URL,
         vlcUrl: SERVER_3_URL,
         allStreams: [],
-        browserStream: { url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL },
+        browserStream: { url: SERVER_3_URL, authParams: '', streams: [{ url: SERVER_3_URL, format: 'm3u8', title: 'Live' }], streamIndex: 0 },
         streamIndex: 0,
         subjectId: selectedMovieId,
         se,
@@ -1221,7 +1221,7 @@ function App() {
     if (!selectedMovieId || isFetchingPlay || playingVideo) return;
 
     if (movieDetails?.isLiveSports || selectedMovieId === 'fifa-live') {
-      setPlayingVideo({ url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL });
+      setPlayingVideo({ url: SERVER_3_URL, authParams: '', streams: [{ url: SERVER_3_URL, format: 'm3u8', title: 'Live' }], streamIndex: 0 });
       return;
     }
 
@@ -1718,7 +1718,7 @@ function App() {
                 style={{ cursor: fifaLatestMatch.playPath ? 'pointer' : 'default' }}
                 onClick={() => {
                   if (fifaLatestMatch.playPath) {
-                    setPlayingVideo({ url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL });
+                    setPlayingVideo({ url: SERVER_3_URL, authParams: '', streams: [{ url: SERVER_3_URL, format: 'm3u8', title: 'Live' }], streamIndex: 0 });
                   }
                 }}
               >
@@ -1854,7 +1854,7 @@ function App() {
                         if (urlMatch) streamUrl = decodeURIComponent(urlMatch[1]);
                       }
                       if (streamUrl) {
-                        setPlayingVideo({ url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL });
+                        setPlayingVideo({ url: SERVER_3_URL, authParams: '', streams: [{ url: SERVER_3_URL, format: 'm3u8', title: 'Live' }], streamIndex: 0 });
                       } else {
                         alert(`The live stream for ${match.team1.name} vs ${match.team2.name} is not available yet! Please check back closer to kickoff.`);
                       }
