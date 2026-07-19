@@ -264,7 +264,7 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const [selectedMp4Index, setSelectedMp4Index] = useState(0);
   const [fetchingMp4s, setFetchingMp4s] = useState(false);
 
-  const [server, setServer] = useState<1 | 2>(1);
+  const [server, setServer] = useState<1 | 2 | 3>(1);
   const [server2Error, setServer2Error] = useState<string | null>(null);
   const [fetchingServer2, setFetchingServer2] = useState(false);
   const [server2Url, setServer2Url] = useState<string | null>(null);
@@ -311,7 +311,9 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const isHevc = selectedStream ? isHevcStream(selectedStream) : false;
   
   const vlcAuthParams = selectedStream ? getAuthParams(selectedStream) : '';
-  const currentVlcUrl = server === 2 && server2Url ? server2Url : (selectedStream ? toVlcProxyUrl(selectedStream.url, vlcAuthParams) : fallback.vlcUrl);
+  const server3Url = 'https://hugh.cdn.rumble.cloud/live/r8wvl35k/slot-5/iwj7-mxym/chunklist.m3u8';
+  
+  const currentVlcUrl = server === 3 ? server3Url : (server === 2 && server2Url ? server2Url : (selectedStream ? toVlcProxyUrl(selectedStream.url, vlcAuthParams) : fallback.vlcUrl));
   const resolutionOptions = selectedStream ? getResolutionOptions(selectedStream) : [];
   const availableQualities = [
     ...new Set([
@@ -322,10 +324,12 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const selectedQuality = availableQualities[selectedMp4Index] || availableQualities[0] || '';
   const selectedMp4 = mp4Links.find((link) => getResolutionNumber(link.label) === getResolutionNumber(selectedQuality));
   
-  const canPlayInBrowser = server === 2 && server2Url ? true : (selectedStream ? !isHevc : !!fallback.browserStream);
-  const currentBrowserStream = server === 2 && server2Url 
-    ? { url: server2Url, authParams: '', streams: [{ url: server2Url, format: 'm3u8', title: 'Live (Server 2)' }], streamIndex: 0 } 
-    : (selectedStream ? { url: selectedStream.url, authParams: getAuthParams(selectedStream), streams: fallback.allStreams, streamIndex: selectedIndex } : fallback.browserStream);
+  const canPlayInBrowser = server === 3 ? true : (server === 2 && server2Url ? true : (selectedStream ? !isHevc : !!fallback.browserStream));
+  const currentBrowserStream = server === 3
+    ? { url: server3Url, authParams: '', streams: [{ url: server3Url, format: 'm3u8', title: 'Live (Server 3 - Hindi)' }], streamIndex: 0 }
+    : (server === 2 && server2Url 
+      ? { url: server2Url, authParams: '', streams: [{ url: server2Url, format: 'm3u8', title: 'Live (Server 2)' }], streamIndex: 0 } 
+      : (selectedStream ? { url: selectedStream.url, authParams: getAuthParams(selectedStream), streams: fallback.allStreams, streamIndex: selectedIndex } : fallback.browserStream));
 
   const handleSelectServer2 = async () => {
     if (server2Url) { setServer(2); return; }
@@ -388,20 +392,26 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
           {fallback.isLiveSports && (
             <div className="mb-4 mt-2">
               <div className="text-sm text-gray-400 mb-2">Select Server:</div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button 
                   onClick={() => setServer(1)}
-                  className={`flex-1 py-2 rounded-md font-medium transition-colors ${server === 1 ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                  className={`flex-1 py-2 px-1 rounded-md font-medium transition-colors text-sm ${server === 1 ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
                 >
                   Server 1 (Default)
                 </button>
                 <button 
                   onClick={handleSelectServer2}
                   disabled={fetchingServer2}
-                  className={`flex-1 py-2 rounded-md font-medium transition-colors flex items-center justify-center gap-2 ${server === 2 ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                  className={`flex-1 py-2 px-1 rounded-md font-medium transition-colors flex items-center justify-center gap-1 text-sm ${server === 2 ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
                 >
-                  {fetchingServer2 ? <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span> : null}
+                  {fetchingServer2 ? <span className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full"></span> : null}
                   Server 2 (Redjoy)
+                </button>
+                <button 
+                  onClick={() => { setServer(3); setServer2Error(null); }}
+                  className={`flex-1 py-2 px-1 rounded-md font-medium transition-colors text-sm ${server === 3 ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                >
+                  Server 3 (Hindi)
                 </button>
               </div>
               {server2Error && <div className="text-red-400 text-xs mt-2">{server2Error}</div>}
