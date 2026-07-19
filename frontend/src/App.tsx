@@ -157,9 +157,10 @@ function toVlcProxyUrl(url: string, authParams: string): string {
       return url;
     }
     
-    // Use a harmless dummy query param if auth is empty to prevent browser from collapsing the // path segment
-    const safeAuthParams = authParams || 'dummy=1';
-    const authToken = toBase64Url(safeAuthParams);
+    // Use a space (%20) as the auth token placeholder if empty. 
+    // This prevents the browser from collapsing the // path segment, 
+    // and Node.js Buffer.from(' ', 'base64url') safely resolves to an empty string on the backend!
+    const authToken = authParams ? toBase64Url(authParams) : '%20';
     return `${backendOrigin}/vlc/${authToken}/${parsed.hostname}${parsed.pathname}${parsed.search}`;
   } catch {
     return appendAuthParams(toProxiedCdnUrl(url), authParams);
