@@ -3,6 +3,7 @@ import { getPlayInfo, searchMovies, getCategoryList, getFilterItems, getSubjectD
 import type { FilterState } from './api'
 // @ts-ignore
 import { MediaPlayer } from 'dashjs'
+import Hls from 'hls.js'
 import './index.css'
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -601,9 +602,22 @@ function VideoPlayer({
     video.addEventListener('loadedmetadata', restoreStartTime, { once: true });
     video.addEventListener('volumechange', syncPlaybackState);
     
+    let hlsPlayer: Hls | null = null;
+    
     // If it's an MP4 or other native format, don't use Dash.js
     if (!isDash) {
-      video.src = playbackUrl;
+      if ((url.includes('.m3u8') || url.includes('.m3u')) && Hls.isSupported()) {
+        hlsPlayer = new Hls({
+          xhrSetup: (xhr, u) => {
+            xhr.open('GET', toVlcProxyUrl(u, authParams), true);
+          }
+        });
+        hlsPlayer.loadSource(playbackUrl);
+        hlsPlayer.attachMedia(video);
+      } else {
+        video.src = playbackUrl;
+      }
+      
       return () => {
         video.removeEventListener('play', syncPlaybackState);
         video.removeEventListener('pause', syncPlaybackState);
@@ -611,6 +625,9 @@ function VideoPlayer({
         video.removeEventListener('loadedmetadata', syncPlaybackState);
         video.removeEventListener('loadedmetadata', restoreStartTime);
         video.removeEventListener('volumechange', syncPlaybackState);
+        if (hlsPlayer) {
+          hlsPlayer.destroy();
+        }
       };
     }
 
