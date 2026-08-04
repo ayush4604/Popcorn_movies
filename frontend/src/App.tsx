@@ -807,7 +807,7 @@ function VideoPlayer({
   )
 }
 
-type TabType = 'home' | 'movies' | 'tvshows' | 'anime' | 'fifa';
+type TabType = 'home' | 'movies' | 'tvshows' | 'anime';
 
 interface UserAccount {
   id: string;
@@ -873,9 +873,7 @@ function App() {
   useEffect(() => {
     moviesRef.current = movies;
   }, [movies]);
-  const [fifaMatches, setFifaMatches] = useState<any[]>([])
-  const [fifaLatestMatch, setFifaLatestMatch] = useState<any>(null)
-  const [fifaVoteRank, setFifaVoteRank] = useState<any[]>([])
+
   const [loading, setLoading] = useState(true)
   const roastMessage = useRotatingMessage(ROAST_LOADING_MESSAGES);
   const roastMoreMessage = useRotatingMessage(ROAST_LOADING_MORE, 3000);
@@ -883,8 +881,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isFetchingPlay, setIsFetchingPlay] = useState(false)
   const [activeTab, setActiveTab] = useState<TabType>('home')
-  const [showFifaPromo, setShowFifaPromo] = useState(() => !sessionStorage.getItem('fifaPromoSeen'))
-  
+
   // UI State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false)
@@ -942,29 +939,7 @@ function App() {
     setError(null)
     
     let fetchPromise;
-    if (activeTab === 'fifa') {
-      const fifaLeagueId = "4186762757372631736";
-      fetchPromise = Promise.all([
-        fetch(`/api/sports/aggregate?leagueId=${fifaLeagueId}`).then(r => r.json()),
-        fetch(`/api/sports/match-list?leagueId=${fifaLeagueId}`).then(r => r.json())
-      ]).then(([aggregate, matchListRes]) => {
-         const allMatches = matchListRes?.data?.list || [];
-         const filtered = allMatches.filter((m: any) => String(m.leagueId) === fifaLeagueId);
-         filtered.sort((a: any, b: any) => {
-           const statusOrder: any = { 'MatchLiving': 0, 'MatchNotStart': 1, 'MatchEnded': 2 };
-           const orderA = statusOrder[a.status] ?? 99;
-           const orderB = statusOrder[b.status] ?? 99;
-           if (orderA !== orderB) return orderA - orderB;
-           if (a.status === 'MatchEnded') return parseInt(b.startTime) - parseInt(a.startTime);
-           return parseInt(a.startTime) - parseInt(b.startTime);
-         });
-         return {
-           isFifa: true,
-           aggregate: aggregate?.data || {},
-           matchList: filtered
-         }
-      });
-    } else if (searchQuery.trim() !== '') {
+    if (searchQuery.trim() !== '') {
       fetchPromise = searchMovies(searchQuery.trim(), page, 20)
     } else {
       let tabId = "0";
@@ -985,40 +960,31 @@ function App() {
       .then(payload => {
         if (!isSubscribed) return;
         
-        if (activeTab === 'fifa' && payload.isFifa) {
-          setFifaMatches(payload.matchList || []);
-          setFifaLatestMatch(payload.aggregate.latestMatch || null);
-          setFifaVoteRank(payload.aggregate.leagueVoteRank || []);
-          setMovies([]);
-          setHasMore(false);
-        } else {
-          const items = payload || [];
-          // Filter out non-movie/tvshow items (like youtube clips which have no posters) and items with broken covers
-          const validItems = items.filter((item: any) => {
-            const hasCover = item.cover && (item.cover.url || typeof item.cover === 'string');
-            return hasCover && (item.subjectType === 1 || item.subjectType === 2 || !item.subjectType);
-          });
+        const items = payload || [];
+        const validItems = items.filter((item: any) => {
+          const hasCover = item.cover && (item.cover.url || typeof item.cover === 'string');
+          return hasCover && (item.subjectType === 1 || item.subjectType === 2 || !item.subjectType);
+        });
+        
+        setMovies(prev => {
+          if (page === 1) {
+            setHasMore(validItems.length > 0);
+            return validItems;
+          }
           
-          setMovies(prev => {
-            if (page === 1) {
-              setHasMore(validItems.length > 0);
-              return validItems;
-            }
-            
-            const existingIds = new Set(prev.map(m => m.id || m.subjectId));
-            const newItems = validItems.filter((item: any) => !existingIds.has(item.id || item.subjectId));
-            
-            if (validItems.length > 0 && newItems.length === 0) {
-              setHasMore(false); // Stop if we only got duplicates
-            } else {
-              setHasMore(items.length > 0);
-            }
-            return [...prev, ...newItems];
-          });
-        }
+          const existingIds = new Set(prev.map(m => m.id || m.subjectId));
+          const newItems = validItems.filter((item: any) => !existingIds.has(item.id || item.subjectId));
+          
+          if (validItems.length > 0 && newItems.length === 0) {
+            setHasMore(false);
+          } else {
+            setHasMore(items.length > 0);
+          }
+          return [...prev, ...newItems];
+        });
+        
         setLoading(false);
         setLoadingMore(false);
-        // Delay releasing the fetch lock to allow React to render DOM (prevents infinite scroll triggering instantly)
         setTimeout(() => {
           if (isSubscribed) isFetchingRef.current = false;
         }, 300);
@@ -1039,35 +1005,6 @@ function App() {
       isFetchingRef.current = false;
     }
   }, [searchQuery, activeTab, currentFilters, page])
-
-  // Polling effect for live sports data
-  useEffect(() => {
-    if (activeTab !== 'fifa') return;
-    
-    const interval = setInterval(() => {
-      const fifaLeagueId = "4186762757372631736";
-      Promise.all([
-        fetch(`/api/sports/aggregate?leagueId=${fifaLeagueId}`).then(r => r.json()),
-        fetch(`/api/sports/match-list?leagueId=${fifaLeagueId}`).then(r => r.json())
-      ]).then(([aggregate, matchListRes]) => {
-         setFifaLatestMatch(aggregate?.data?.latestMatch || null);
-         const allMatches = matchListRes?.data?.list || [];
-         const filtered = allMatches.filter((m: any) => String(m.leagueId) === fifaLeagueId);
-         filtered.sort((a: any, b: any) => {
-           const statusOrder: any = { 'MatchLiving': 0, 'MatchNotStart': 1, 'MatchEnded': 2 };
-           const orderA = statusOrder[a.status] ?? 99;
-           const orderB = statusOrder[b.status] ?? 99;
-           if (orderA !== orderB) return orderA - orderB;
-           if (a.status === 'MatchEnded') return parseInt(b.startTime) - parseInt(a.startTime);
-           return parseInt(a.startTime) - parseInt(b.startTime);
-         });
-         setFifaMatches(filtered);
-         setFifaVoteRank(aggregate?.data?.leagueVoteRank || []);
-      }).catch(console.error);
-    }, 30000);
-    
-    return () => clearInterval(interval);
-  }, [activeTab]);
 
   // IntersectionObserver for robust infinite scrolling
   const loaderRef = useRef<HTMLDivElement>(null);
@@ -1177,7 +1114,7 @@ function App() {
   const openPlaybackOptions = async (se: string = '0', ep: string = '0') => {
     if (!selectedMovieId || isFetchingPlay) return;
 
-    if (movieDetails?.isLiveSports || selectedMovieId === 'fifa-live') {
+    if (movieDetails?.isLiveSports) {
       setVlcFallback({
         title: movieDetails?.title || 'Live Stream',
         format: '',
@@ -1239,7 +1176,7 @@ function App() {
   const handlePlay = async (se: string = '0', ep: string = '0') => {
     if (!selectedMovieId || isFetchingPlay || playingVideo) return;
 
-    if (movieDetails?.isLiveSports || selectedMovieId === 'fifa-live') {
+    if (movieDetails?.isLiveSports) {
       setPlayingVideo({ url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL });
       return;
     }
@@ -1344,41 +1281,6 @@ function App() {
         )
       )}
 
-      {showFifaPromo && (
-        <div className="modal-backdrop" style={{ zIndex: 10000 }}>
-          <div className="bg-gray-900 rounded-xl overflow-hidden max-w-md w-full mx-4 shadow-2xl border border-gray-800 relative" style={{ animation: 'fadeIn 0.3s ease-out' }}>
-            <button 
-              onClick={() => {
-                sessionStorage.setItem('fifaPromoSeen', 'true');
-                setShowFifaPromo(false);
-              }}
-              className="absolute top-3 right-3 bg-black bg-opacity-50 hover:bg-opacity-80 text-white rounded-full p-2 transition-all z-10"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-            </button>
-            <img src="/fifa-promo.png" alt="Spain vs Argentina - 2026 World Cup Final" className="w-full object-cover" style={{ maxHeight: '320px' }} />
-            <div className="p-5 text-center">
-              <h2 className="text-xl font-bold text-white mb-1">🏆 2026 FIFA World Cup Final</h2>
-              <p className="text-gray-400 mb-4 text-sm">Spain vs Argentina — July 19 • Watch it LIVE on Popcorn Movies!</p>
-              <button 
-                onClick={() => {
-                  sessionStorage.setItem('fifaPromoSeen', 'true');
-                  setShowFifaPromo(false);
-                  setActiveTab('fifa');
-                  setSearchQuery('');
-                  setPage(1);
-                  setHasMore(true);
-                  setIsMobileMenuOpen(false);
-                }}
-                className="w-full bg-[#00ff88] text-black font-bold py-3 px-4 rounded-lg hover:bg-[#00cc66] transition-colors shadow-[0_0_15px_rgba(0,255,136,0.3)]"
-              >
-                WATCH NOW
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {vlcFallback && (
         <VlcFallbackDialog 
           fallback={vlcFallback} 
@@ -1409,7 +1311,6 @@ function App() {
           <a href="#" className={activeTab === 'movies' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('movies'); setSearchQuery(''); setPage(1); setHasMore(true); setIsMobileMenuOpen(false); }}>Movies</a>
           <a href="#" className={activeTab === 'tvshows' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('tvshows'); setSearchQuery(''); setPage(1); setHasMore(true); setIsMobileMenuOpen(false); }}>TV Shows</a>
           <a href="#" className={activeTab === 'anime' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('anime'); setSearchQuery(''); setPage(1); setHasMore(true); setIsMobileMenuOpen(false); }}>Anime</a>
-          <a href="#" className={activeTab === 'fifa' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('fifa'); setSearchQuery(''); setPage(1); setHasMore(true); setIsMobileMenuOpen(false); }} style={{ color: '#00ff88', fontWeight: 'bold', borderLeft: activeTab === 'fifa' ? '3px solid #00ff88' : 'none' }}>FIFA WORLD CUP</a>
         </nav>
         
         {/* Mobile Sidebar Account Section */}
@@ -1538,7 +1439,6 @@ function App() {
               : activeTab === 'movies' ? 'Movies'
               : activeTab === 'tvshows' ? 'TV Shows'
               : activeTab === 'anime' ? 'Anime'
-              : activeTab === 'fifa' ? 'FIFA World Cup Matches'
               : 'Trending Now'
             }
           </h2>
@@ -1688,8 +1588,7 @@ function App() {
         {error && <div className="state-panel error">Error: {error}</div>}
 
         {/* Movie Grid */}
-        {/* Movie Grid */}
-        {!loading && !error && activeTab !== 'fifa' && (
+        {!loading && !error && (
           <div className="movie-grid">
             {movies.map((movie: any, i: number) => {
               const uniqueKey = `${movie.id || movie.subjectId}-${i}`;
@@ -1723,230 +1622,6 @@ function App() {
               </div>
               );
             })}
-          </div>
-        )}
-
-        {/* FIFA Custom World Cup Layout */}
-        {!loading && !error && activeTab === 'fifa' && (
-          <div className="world-cup-container">
-            
-            {/* Hero Featured Match */}
-            {fifaLatestMatch && (
-              <div 
-                className="hero-match-card"
-                style={{ cursor: fifaLatestMatch.playPath ? 'pointer' : 'default' }}
-                onClick={() => {
-                  if (fifaLatestMatch.playPath) {
-                    setPlayingVideo({ url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL });
-                  }
-                }}
-              >
-                <div className="hero-header">
-                  <span className="hero-title">World Cup {fifaLatestMatch.matchRound ? `- ${fifaLatestMatch.matchRound}` : ''}</span>
-                  {fifaLatestMatch.status === 'MatchEnded' ? (
-                    <span className="hero-badge">Finished</span>
-                  ) : fifaLatestMatch.status === 'MatchLiving' ? (
-                    <span className="hero-badge live">Live</span>
-                  ) : (
-                    <span className="hero-badge">Upcoming</span>
-                  )}
-                </div>
-                <div className="hero-teams">
-                  <div className="hero-team">
-                    <span className="hero-team-name">{fifaLatestMatch.team1.name}</span>
-                    <img src={fifaLatestMatch.team1.avatar} alt={fifaLatestMatch.team1.name} />
-                  </div>
-                  <div className="hero-vs">
-                    {fifaLatestMatch.status === 'MatchEnded' ? `${fifaLatestMatch.team1.score} - ${fifaLatestMatch.team2.score}` : 'VS'}
-                  </div>
-                  <div className="hero-team reverse">
-                    <span className="hero-team-name">{fifaLatestMatch.team2.name}</span>
-                    <img src={fifaLatestMatch.team2.avatar} alt={fifaLatestMatch.team2.name} />
-                  </div>
-                </div>
-                {fifaLatestMatch.status === 'MatchEnded' && (
-                  <div className="match-row-actions" style={{ justifyContent: 'center', marginTop: '16px' }} onClick={(e) => e.stopPropagation()}>
-                    {fifaLatestMatch.replay && fifaLatestMatch.replay.length > 0 && (
-                      <button className="match-action-btn" onClick={() => {
-                        setVlcFallback({
-                          title: `Replay: ${fifaLatestMatch.team1.name} vs ${fifaLatestMatch.team2.name}`,
-                          format: 'mp4',
-                          resolution: '1080p',
-                          directUrl: fifaLatestMatch.replay[0].path,
-                          vlcUrl: fifaLatestMatch.replay[0].path,
-                          browserStream: {
-                            url: fifaLatestMatch.replay[0].path,
-                            authParams: '',
-                            streams: [{ url: fifaLatestMatch.replay[0].path, format: 'mp4', title: 'Replay' }],
-                            streamIndex: 0
-                          }
-                        });
-                      }}>Replay 📺</button>
-                    )}
-                    {fifaLatestMatch.highlights && fifaLatestMatch.highlights.length > 0 && (
-                      <button className="match-action-btn" onClick={() => {
-                        setVlcFallback({
-                          title: `Highlights: ${fifaLatestMatch.team1.name} vs ${fifaLatestMatch.team2.name}`,
-                          format: 'mp4',
-                          resolution: '1080p',
-                          directUrl: fifaLatestMatch.highlights[0].path,
-                          vlcUrl: fifaLatestMatch.highlights[0].path,
-                          browserStream: {
-                            url: fifaLatestMatch.highlights[0].path,
-                            authParams: '',
-                            streams: [{ url: fifaLatestMatch.highlights[0].path, format: 'mp4', title: 'Highlights' }],
-                            streamIndex: 0
-                          }
-                        });
-                      }}>Highlights 🎬</button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Team Votes Podium */}
-            {fifaVoteRank && fifaVoteRank.length >= 3 && (
-              <div className="team-votes-section">
-                <h3 className="votes-title">World Cup Team Votes</h3>
-                <div className="podium-container">
-                  {/* Rank 2 - Left */}
-                  <div className="podium-item rank-2">
-                    <div className="podium-avatar-wrapper">
-                      <img src={fifaVoteRank[1].avatar} className="podium-avatar" alt={fifaVoteRank[1].name} />
-                      <div className="podium-badge">2</div>
-                      <div className="podium-tecno">TECNO</div>
-                    </div>
-                    <span className="podium-name">{fifaVoteRank[1].name}</span>
-                    <span className="podium-votes">⚡ {Number(fifaVoteRank[1].voteCount).toLocaleString()}</span>
-                  </div>
-                  
-                  {/* Rank 1 - Center */}
-                  <div className="podium-item rank-1">
-                    <div className="podium-avatar-wrapper">
-                      <img src={fifaVoteRank[0].avatar} className="podium-avatar" alt={fifaVoteRank[0].name} />
-                      <div className="podium-badge">1</div>
-                      <div className="podium-tecno">TECNO</div>
-                    </div>
-                    <span className="podium-name">{fifaVoteRank[0].name}</span>
-                    <span className="podium-votes">⚡ {Number(fifaVoteRank[0].voteCount).toLocaleString()}</span>
-                  </div>
-
-                  {/* Rank 3 - Right */}
-                  <div className="podium-item rank-3">
-                    <div className="podium-avatar-wrapper">
-                      <img src={fifaVoteRank[2].avatar} className="podium-avatar" alt={fifaVoteRank[2].name} />
-                      <div className="podium-badge">3</div>
-                      <div className="podium-tecno">TECNO</div>
-                    </div>
-                    <span className="podium-name">{fifaVoteRank[2].name}</span>
-                    <span className="podium-votes">⚡ {Number(fifaVoteRank[2].voteCount).toLocaleString()}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Compact Matches List */}
-            <div className="matches-section-header">
-              <h2>Matches</h2>
-              <span>All &gt;</span>
-            </div>
-            <div className="matches-date">Jul 12, 2026</div>
-            
-            <div className="matches-list-container">
-              {fifaMatches.map((match: any, i: number) => {
-                const uniqueKey = `${match.id}-${i}`;
-                const isEnded = match.status === 'MatchEnded';
-                const matchDate = new Date(parseInt(match.startTime));
-                const timeString = matchDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + matchDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                
-                return (
-                  <div 
-                    key={uniqueKey} 
-                    className="match-row-card"
-                    onClick={() => {
-                      if (isEnded) return;
-
-                      let streamUrl = match.playPath;
-                      if (!streamUrl && match.playSource && match.playSource.length > 0) {
-                        const urlMatch = match.playSource[0].path.match(/url=(.*?)&/);
-                        if (urlMatch) streamUrl = decodeURIComponent(urlMatch[1]);
-                      }
-                      if (streamUrl) {
-                        setPlayingVideo({ url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL });
-                      } else {
-                        alert(`The live stream for ${match.team1.name} vs ${match.team2.name} is not available yet! Please check back closer to kickoff.`);
-                      }
-                    }}
-                  >
-                    <div className="match-row-top">
-                      <span>{timeString}</span>
-                      <span>{match.matchRound || 'World Cup'}</span>
-                      {match.status === 'MatchLiving' ? (
-                        <span style={{ color: '#ff4d4d', fontWeight: 'bold', animation: 'pulse 2s infinite' }}>Live 🔴</span>
-                      ) : (
-                        <span>⭐</span>
-                      )}
-                    </div>
-                    
-                    <div className="match-row-main">
-                      <div className="match-row-team left">
-                        <span className="match-row-team-name">{match.team1.name}</span>
-                        <img src={match.team1.avatar} className="match-row-avatar" alt={match.team1.name} />
-                      </div>
-                      
-                      <div className="match-row-score">
-                        {isEnded ? `${match.team1.score} - ${match.team2.score}` : 'VS'}
-                      </div>
-                      
-                      <div className="match-row-team right">
-                        <img src={match.team2.avatar} className="match-row-avatar" alt={match.team2.name} />
-                        <span className="match-row-team-name">{match.team2.name}</span>
-                      </div>
-                    </div>
-                    
-                    {isEnded && (
-                      <div className="match-row-actions" onClick={(e) => e.stopPropagation()}>
-                        {match.replay && match.replay.length > 0 && (
-                          <button className="match-action-btn" onClick={() => {
-                            setVlcFallback({
-                              title: `Replay: ${match.team1.name} vs ${match.team2.name}`,
-                              format: 'mp4',
-                              resolution: '1080p',
-                              directUrl: match.replay[0].path,
-                              vlcUrl: match.replay[0].path,
-                              browserStream: {
-                                url: match.replay[0].path,
-                                authParams: '',
-                                streams: [{ url: match.replay[0].path, format: 'mp4', title: 'Replay' }],
-                                streamIndex: 0
-                              }
-                            });
-                          }}>Replay 📺</button>
-                        )}
-                        {match.highlights && match.highlights.length > 0 && (
-                          <button className="match-action-btn" onClick={() => {
-                            setVlcFallback({
-                              title: `Highlights: ${match.team1.name} vs ${match.team2.name}`,
-                              format: 'mp4',
-                              resolution: '1080p',
-                              directUrl: match.highlights[0].path,
-                              vlcUrl: match.highlights[0].path,
-                              browserStream: {
-                                url: match.highlights[0].path,
-                                authParams: '',
-                                streams: [{ url: match.highlights[0].path, format: 'mp4', title: 'Highlights' }],
-                                streamIndex: 0
-                              }
-                            });
-                          }}>Highlights 🎬</button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
           </div>
         )}
         
