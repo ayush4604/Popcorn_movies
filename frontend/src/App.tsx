@@ -1875,8 +1875,8 @@ function App() {
       
       {/* Trial Expired Mask */}
       {isTrialExpired && account?.tier !== 'premium' && (
-        <div className="details-backdrop" style={{ zIndex: 9999, backdropFilter: 'blur(20px)', background: 'rgba(0,0,0,0.85)' }}>
-          <div className="details-shell" style={{ maxWidth: '500px', margin: '20vh auto', padding: '0', background: 'linear-gradient(180deg, #1a1625 0%, #0f1016 100%)', border: '1px solid rgba(255,82,0,0.5)', textAlign: 'center' }}>
+        <div className="premium-backdrop" style={{ position: 'fixed', inset: 0, width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(20px)', background: 'rgba(0,0,0,0.85)' }}>
+          <div className="premium-shell" style={{ width: '100%', maxWidth: '500px', padding: '0', background: 'linear-gradient(180deg, #1a1625 0%, #0f1016 100%)', border: '1px solid rgba(255,82,0,0.5)', borderRadius: '16px', textAlign: 'center' }}>
             <div style={{ padding: '40px 32px' }}>
               <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏰</div>
               <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff', marginBottom: '16px' }}>Your Free Trial has Expired!</h2>
@@ -1915,8 +1915,8 @@ function App() {
 
       {/* Trial Warning Modal */}
       {isTrialWarningModalOpen && account?.tier !== 'premium' && (
-        <div className="details-backdrop" style={{ zIndex: 300, backdropFilter: 'blur(5px)' }}>
-          <div className="details-shell" style={{ maxWidth: '400px', margin: '15vh auto', padding: '32px', textAlign: 'center', background: '#1a1625', border: '1px solid rgba(255,183,77,0.3)' }}>
+        <div style={{ position: 'fixed', inset: 0, width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(5px)', background: 'rgba(0,0,0,0.6)' }}>
+          <div style={{ width: '100%', maxWidth: '400px', position: 'relative', padding: '32px', textAlign: 'center', background: '#1a1625', border: '1px solid rgba(255,183,77,0.3)', borderRadius: '16px' }}>
             <button className="details-close" onClick={() => setIsTrialWarningModalOpen(false)}>×</button>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
             <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#ffb74d', marginBottom: '12px' }}>Trial Expiring Soon!</h2>
