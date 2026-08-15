@@ -571,6 +571,31 @@ function VideoPlayer({
 
   const [activeMenu, setActiveMenu] = useState<'settings' | 'cc' | null>(null);
   const [seekRipple, setSeekRipple] = useState<{ type: 'rewind' | 'forward'; id: number } | null>(null);
+  const [aspectMode, setAspectMode] = useState<'contain' | 'cover' | 'fill'>('contain');
+
+  useEffect(() => {
+    try {
+      if (screen.orientation && typeof (screen.orientation as any).lock === 'function') {
+        (screen.orientation as any).lock('landscape').catch(() => {});
+      }
+    } catch (e) {}
+
+    return () => {
+      try {
+        if (screen.orientation && typeof (screen.orientation as any).unlock === 'function') {
+          (screen.orientation as any).unlock();
+        }
+      } catch (e) {}
+    };
+  }, []);
+
+  const toggleAspectMode = () => {
+    setAspectMode((prev) => {
+      if (prev === 'contain') return 'cover';
+      if (prev === 'cover') return 'fill';
+      return 'contain';
+    });
+  };
 
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
@@ -923,7 +948,7 @@ function VideoPlayer({
       {/* 📺 Pure Fullscreen Video Element (No Browser Native Controls!) */}
       <video 
         ref={videoRef} 
-        className="w-full h-full max-h-screen object-contain"
+        className={`w-full h-full max-h-screen ${aspectMode === 'cover' ? 'object-cover' : aspectMode === 'fill' ? 'object-fill' : 'object-contain'}`}
         playsInline
       />
 
@@ -1041,6 +1066,16 @@ function VideoPlayer({
 
             {/* Right Controls */}
             <div className="flex items-center gap-3.5">
+              {/* 📺 Aspect Ratio / Fit Screen Button (Left of CC) */}
+              <button 
+                onClick={(e) => { e.stopPropagation(); toggleAspectMode(); }}
+                className="flex items-center gap-1 text-[11px] font-extrabold px-2 py-0.5 rounded border border-white/30 hover:border-cyan-400 hover:text-cyan-300 text-white transition-all cursor-pointer bg-white/5 active:scale-95"
+                title={`Screen Fit: ${aspectMode.toUpperCase()}`}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15l3-3M17 9l-3 3"/></svg>
+                <span>{aspectMode === 'cover' ? 'FILL' : aspectMode === 'fill' ? 'STRETCH' : 'FIT'}</span>
+              </button>
+
               {/* CC Subtitles Button */}
               <button 
                 onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'settings' ? null : 'settings'); }}
