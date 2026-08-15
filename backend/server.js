@@ -57,10 +57,17 @@ async function movieBoxRequest(method, path, bodyObject = null, retries = 2) {
   const accept = 'application/json';
   const contentType = body ? 'application/json; charset=utf-8' : '';
 
+  const urlObj = new URL(path, 'https://apii.inmoviebox.com');
+  const keys = Array.from(urlObj.searchParams.keys()).sort();
+  const sortedQuery = keys.length
+    ? `?${keys.map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(urlObj.searchParams.get(key) || '')}`).join('&')}`
+    : '';
+  const canonicalPath = `${urlObj.pathname}${sortedQuery}`;
+
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const signature = generateSignature(method, path, body, accept, contentType);
-      const response = await fetch(`https://apii.inmoviebox.com${path}`, {
+      const signature = generateSignature(method, canonicalPath, body, accept, contentType);
+      const response = await fetch(`https://apii.inmoviebox.com${canonicalPath}`, {
         method,
         headers: {
           ...API_BASE_HEADERS,
@@ -77,14 +84,14 @@ async function movieBoxRequest(method, path, bodyObject = null, retries = 2) {
       }
 
       const text = await response.text();
-      console.warn(`MovieBox API attempt ${attempt + 1}/${retries + 1} status ${response.status} on ${path}:`, text);
+      console.warn(`MovieBox API attempt ${attempt + 1}/${retries + 1} status ${response.status} on ${canonicalPath}:`, text);
       if (attempt === retries) {
         throw new Error(`MovieBox API error: ${response.status}`);
       }
     } catch (e) {
       if (attempt === retries) throw e;
     }
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 200));
   }
 }
 

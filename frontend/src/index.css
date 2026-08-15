@@ -2580,7 +2580,7 @@ button {
   scroll-behavior: smooth;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-x;
+  touch-action: pan-x pan-y;
 }
 
 .movie-row-scroll::-webkit-scrollbar {
@@ -2594,6 +2594,7 @@ button {
   flex-direction: column;
   cursor: pointer;
   transition: transform 0.25s ease, box-shadow 0.25s ease;
+  touch-action: pan-x pan-y;
 }
 
 .row-poster-card:hover {
@@ -2607,6 +2608,9 @@ button {
   border-radius: 12px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  -webkit-user-drag: none;
+  user-select: none;
+  pointer-events: auto;
 }
 
 .row-poster-title {

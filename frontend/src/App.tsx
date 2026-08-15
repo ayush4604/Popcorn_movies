@@ -888,7 +888,7 @@ function VideoPlayer({
       <video 
         ref={videoRef} 
         className="w-full h-full max-h-screen object-contain cursor-pointer"
-        onClick={togglePlay}
+        onDoubleClick={togglePlay}
         playsInline
       />
 
