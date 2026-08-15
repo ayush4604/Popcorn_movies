@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { getPlayInfo, searchMovies, getCategoryList, getFilterItems, getSubjectDetails, getSeasonInfo, getResourceLinks } from './api'
 import type { FilterState } from './api'
 // @ts-ignore
@@ -81,6 +81,9 @@ interface PlayingVideo {
   streamIndex: number;
   startTime?: number;
   iframeUrl?: string;
+  title?: string;
+  subjectId?: string;
+  dubs?: any[];
 }
 
 interface VlcFallback {
@@ -98,7 +101,6 @@ interface VlcFallback {
   isLiveSports?: boolean;
 }
 
-type MenuName = 'language' | 'quality' | 'subtitle' | null;
 type DetailTab = 'episodes' | 'details' | 'more';
 
 type DownloadLink = {
@@ -228,36 +230,35 @@ function dedupeDownloadLinks(links: Array<{ label: string; url: string }>) {
   return [...byQuality.values()].sort((a, b) => getResolutionNumber(b.label) - getResolutionNumber(a.label));
 }
 
-function getStreamLanguage(stream: any): string {
-  const source = [
+function getStreamLanguage(stream: any, idx: number = 0): string {
+  const text = [
     stream.lang,
     stream.language,
     stream.audioLang,
+    stream.audioName,
     stream.title,
     stream.name,
     stream.url,
-  ].map((value) => String(value || '')).join(' ');
+  ].map((v) => String(v || '')).join(' ');
 
-  const languages = [
-    'Hindi',
-    'English',
-    'Tamil',
-    'Telugu',
-    'Malayalam',
-    'Kannada',
-    'Bengali',
-    'Marathi',
-    'Punjabi',
-    'Urdu',
-    'Spanish',
-    'French',
-    'German',
-    'Korean',
-    'Japanese',
-    'Chinese',
-  ];
+  if (/hindi|\bhin\b|\bhi\b/i.test(text)) return 'Hindi';
+  if (/english|\beng\b|\ben\b/i.test(text)) return 'English';
+  if (/tamil|\btam\b|\bta\b/i.test(text)) return 'Tamil';
+  if (/telugu|\btel\b|\bte\b/i.test(text)) return 'Telugu';
+  if (/kannada|\bkan\b|\bkn\b/i.test(text)) return 'Kannada';
+  if (/malayalam|\bmal\b|\bml\b/i.test(text)) return 'Malayalam';
+  if (/bengali|\bben\b|\bbn\b/i.test(text)) return 'Bengali';
+  if (/marathi|\bmar\b|\bmr\b/i.test(text)) return 'Marathi';
+  if (/punjabi|\bpan\b|\bpa\b/i.test(text)) return 'Punjabi';
+  if (/urdu|\burd\b|\bur\b/i.test(text)) return 'Urdu';
+  if (/spanish|\bspa\b|\bes\b/i.test(text)) return 'Spanish';
+  if (/french|\bfre\b|\bfr\b/i.test(text)) return 'French';
+  if (/german|\bger\b|\bde\b/i.test(text)) return 'German';
+  if (/korean|\bkor\b|\bko\b/i.test(text)) return 'Korean';
+  if (/japanese|\bjpn\b|\bja\b/i.test(text)) return 'Japanese';
 
-  return languages.find((language) => new RegExp(`\\b${language}\\b`, 'i').test(source)) || 'Default';
+  if (stream.title) return stream.title;
+  return `Audio Track ${idx + 1}`;
 }
 
 function getDownloadLinks(resources: any[], fallbackTitle: string): DownloadLink[] {
@@ -318,8 +319,6 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   }, [fallback]);
 
   const selectedStream = fallback.allStreams?.[selectedIndex];
-  const isHevc = selectedStream ? isHevcStream(selectedStream) : false;
-  
   const vlcAuthParams = selectedStream ? getAuthParams(selectedStream) : '';
   
   const currentVlcUrl = server === 3 ? SERVER_3_URL : (selectedStream ? toVlcProxyUrl(selectedStream.url, vlcAuthParams) : fallback.vlcUrl);
@@ -333,10 +332,10 @@ function VlcFallbackDialog({ fallback, onClose, onPlayInBrowser }: { fallback: V
   const selectedQuality = availableQualities[selectedMp4Index] || availableQualities[0] || '';
   const selectedMp4 = mp4Links.find((link) => getResolutionNumber(link.label) === getResolutionNumber(selectedQuality));
   
-  const canPlayInBrowser = server === 3 ? true : (selectedStream ? !isHevc : !!fallback.browserStream);
+  const canPlayInBrowser = true;
   const currentBrowserStream = server === 3
     ? { url: '', authParams: '', streams: [], streamIndex: 0, iframeUrl: SERVER_3_URL }
-    : (selectedStream ? { url: selectedStream.url, authParams: getAuthParams(selectedStream), streams: fallback.allStreams, streamIndex: selectedIndex } : fallback.browserStream);
+    : (selectedStream ? { url: selectedStream.url, authParams: getAuthParams(selectedStream), streams: fallback.allStreams, streamIndex: selectedIndex } : (fallback.browserStream || (fallback.allStreams?.length ? { url: fallback.allStreams[0].url, authParams: getAuthParams(fallback.allStreams[0]), streams: fallback.allStreams, streamIndex: 0 } : undefined)));
 
   const copyText = async (label: string, text: string) => {
     await navigator.clipboard.writeText(text);
@@ -522,6 +521,9 @@ function VideoPlayer({
   streams,
   streamIndex,
   startTime,
+  title,
+  subjectId,
+  dubs = [],
   onQualityChange,
   onClose,
 }: {
@@ -530,25 +532,147 @@ function VideoPlayer({
   streams: any[],
   streamIndex: number,
   startTime?: number,
+  title?: string,
+  subjectId?: string,
+  dubs?: any[],
   onQualityChange: (index: number) => void,
   onClose: () => void
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<any>(null);
+  const hlsRef = useRef<Hls | null>(null);
 
-  const [audioTracks, setAudioTracks] = useState<any[]>([]);
-  const [textTracks, setTextTracks] = useState<any[]>([]);
+  const [currentDubSubjectId, setCurrentDubSubjectId] = useState<string>(subjectId || '');
+  const [isSwitchingDub, setIsSwitchingDub] = useState(false);
+
+  const [hlsLevels, setHlsLevels] = useState<any[]>([]);
+  const [currentHlsLevel, setCurrentHlsLevel] = useState<number>(-1); // -1 = Auto
+  const [hlsAudioTracks, setHlsAudioTracks] = useState<any[]>([]);
+  const [currentHlsAudio, setCurrentHlsAudio] = useState<number>(0);
+  const [hlsSubtitleTracks, setHlsSubtitleTracks] = useState<any[]>([]);
+  const [currentHlsSubtitle, setCurrentHlsSubtitle] = useState<number>(-1);
+
+  const [dashAudioTracks, setDashAudioTracks] = useState<any[]>([]);
+  const [dashTextTracks, setDashTextTracks] = useState<any[]>([]);
+  const [currentDashAudio, setCurrentDashAudio] = useState<number>(0);
+  const [currentDashText, setCurrentDashText] = useState<number>(-1);
+
+  const [activeMenu, setActiveMenu] = useState<'settings' | 'cc' | null>(null);
+
   const [isPlaying, setIsPlaying] = useState(true);
-  const [isMuted, setIsMuted] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  
-  const [currentAudio, setCurrentAudio] = useState<number>(0);
-  const [currentText, setCurrentText] = useState<number>(-1);
-  const [activeMenu, setActiveMenu] = useState<MenuName>(null);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const togglePlay = () => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play().catch(console.error);
+    }
+  };
+
+  const toggleMute = () => {
+    if (!videoRef.current) return;
+    videoRef.current.muted = !isMuted;
+    setIsMuted(!isMuted);
+  };
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen?.().then(() => setIsFullscreen(true)).catch(console.error);
+    } else {
+      document.exitFullscreen?.().then(() => setIsFullscreen(false)).catch(console.error);
+    }
+  };
+
+  const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const time = parseFloat(e.target.value);
+    setCurrentTime(time);
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+    }
+  };
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const onTimeUpdate = () => setCurrentTime(video.currentTime);
+    const onDurationChange = () => setDuration(video.duration || 0);
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+
+    video.addEventListener('timeupdate', onTimeUpdate);
+    video.addEventListener('durationchange', onDurationChange);
+    video.addEventListener('loadedmetadata', onDurationChange);
+    video.addEventListener('play', onPlay);
+    video.addEventListener('pause', onPause);
+
+    return () => {
+      video.removeEventListener('timeupdate', onTimeUpdate);
+      video.removeEventListener('durationchange', onDurationChange);
+      video.removeEventListener('loadedmetadata', onDurationChange);
+      video.removeEventListener('play', onPlay);
+      video.removeEventListener('pause', onPause);
+    };
+  }, []);
+
+  function formatTime(seconds: number): string {
+    if (!seconds || isNaN(seconds)) return '0:00';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const sStr = s < 10 ? `0${s}` : `${s}`;
+    if (h > 0) {
+      const mStr = m < 10 ? `0${m}` : `${m}`;
+      return `${h}:${mStr}:${sStr}`;
+    }
+    return `${m}:${sStr}`;
+  }
 
   const isDash = url.includes('.mpd');
   const playbackUrl = toVlcProxyUrl(url, authParams);
+
+  const switchDubLanguage = async (dubSubjectId: string) => {
+    if (!dubSubjectId || String(dubSubjectId) === String(currentDubSubjectId) || isSwitchingDub) return;
+    
+    setIsSwitchingDub(true);
+    const currentPos = videoRef.current?.currentTime || 0;
+    try {
+      const res = await getPlayInfo(dubSubjectId, '0', '0');
+      const newStreams = Array.isArray(res) ? res : (res?.streams || []);
+      if (newStreams.length > 0) {
+        const sorted = [...newStreams].sort((a: any, b: any) => getStreamScore(b) - getStreamScore(a));
+        const best = sorted[0];
+        const newAuth = getAuthParams(best);
+        const newPlaybackUrl = toVlcProxyUrl(best.url, newAuth);
+
+        setCurrentDubSubjectId(dubSubjectId);
+        
+        if (hlsRef.current && (best.url.includes('.m3u8') || best.url.includes('.m3u'))) {
+          hlsRef.current.loadSource(newPlaybackUrl);
+          if (videoRef.current) hlsRef.current.attachMedia(videoRef.current);
+        } else if (videoRef.current) {
+          videoRef.current.src = newPlaybackUrl;
+        }
+        
+        if (videoRef.current) {
+          videoRef.current.currentTime = currentPos;
+          videoRef.current.play().catch(console.error);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to switch dub language:', err);
+    } finally {
+      setIsSwitchingDub(false);
+      setActiveMenu(null);
+    }
+  };
 
   useEffect(() => {
     if (!videoRef.current) return;
@@ -559,23 +683,11 @@ function VideoPlayer({
         video.currentTime = startTime;
       }
     };
-    const syncPlaybackState = () => {
-      setIsPlaying(!video.paused);
-      setIsMuted(video.muted);
-      setCurrentTime(video.currentTime || 0);
-      setDuration(Number.isFinite(video.duration) ? video.duration : 0);
-    };
 
-    video.addEventListener('play', syncPlaybackState);
-    video.addEventListener('pause', syncPlaybackState);
-    video.addEventListener('timeupdate', syncPlaybackState);
-    video.addEventListener('loadedmetadata', syncPlaybackState);
     video.addEventListener('loadedmetadata', restoreStartTime, { once: true });
-    video.addEventListener('volumechange', syncPlaybackState);
     
     let hlsPlayer: Hls | null = null;
     
-    // If it's an MP4 or other native format, don't use Dash.js
     if (!isDash) {
       if ((url.includes('.m3u8') || url.includes('.m3u')) && Hls.isSupported()) {
         hlsPlayer = new Hls({
@@ -588,19 +700,46 @@ function VideoPlayer({
           enableWorker: true,
           lowLatencyMode: true
         });
+        hlsRef.current = hlsPlayer;
+
+        hlsPlayer.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+          if (data.levels && data.levels.length > 0) {
+            setHlsLevels(data.levels);
+          }
+        });
+
+        hlsPlayer.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
+          if (data.audioTracks && data.audioTracks.length > 0) {
+            setHlsAudioTracks(data.audioTracks);
+          }
+        });
+
+        hlsPlayer.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_, data) => {
+          if (data.subtitleTracks && data.subtitleTracks.length > 0) {
+            setHlsSubtitleTracks(data.subtitleTracks);
+          }
+        });
+
+        hlsPlayer.on(Hls.Events.LEVEL_SWITCHED, () => {
+          setCurrentHlsLevel(hlsPlayer?.currentLevel ?? -1);
+        });
+
+        hlsPlayer.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_, data) => {
+          setCurrentHlsAudio(data.id);
+        });
+
+        hlsPlayer.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (_, data) => {
+          setCurrentHlsSubtitle(data.id);
+        });
+
         hlsPlayer.on(Hls.Events.ERROR, (_, data) => {
           console.error('HLS Error:', data.type, data.details, data.fatal ? 'FATAL' : '');
-          if (data.response && data.response.code) {
-             console.error('HLS HTTP Status:', data.response.code);
-          }
           if (data.fatal) {
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
-                console.log('FATAL network error encountered, trying to recover...');
                 hlsPlayer?.startLoad();
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
-                console.log('FATAL media error encountered, trying to recover...');
                 hlsPlayer?.recoverMediaError();
                 break;
               default:
@@ -616,14 +755,10 @@ function VideoPlayer({
       }
       
       return () => {
-        video.removeEventListener('play', syncPlaybackState);
-        video.removeEventListener('pause', syncPlaybackState);
-        video.removeEventListener('timeupdate', syncPlaybackState);
-        video.removeEventListener('loadedmetadata', syncPlaybackState);
         video.removeEventListener('loadedmetadata', restoreStartTime);
-        video.removeEventListener('volumechange', syncPlaybackState);
         if (hlsPlayer) {
           hlsPlayer.destroy();
+          hlsRef.current = null;
         }
       };
     }
@@ -637,174 +772,390 @@ function VideoPlayer({
     });
     
     player.on('streamInitialized', () => {
-      setAudioTracks(player.getTracksFor('audio') || []);
-      setTextTracks(player.getTracksFor('text') || []);
+      setDashAudioTracks(player.getTracksFor('audio') || []);
+      setDashTextTracks(player.getTracksFor('text') || []);
     });
 
     player.initialize(videoRef.current, playbackUrl, true);
     
     return () => {
-      video.removeEventListener('play', syncPlaybackState);
-      video.removeEventListener('pause', syncPlaybackState);
-      video.removeEventListener('timeupdate', syncPlaybackState);
-      video.removeEventListener('loadedmetadata', syncPlaybackState);
       video.removeEventListener('loadedmetadata', restoreStartTime);
-      video.removeEventListener('volumechange', syncPlaybackState);
       player.destroy();
       playerRef.current = null;
     };
   }, [url, authParams, isDash, playbackUrl, startTime]);
-
-  const togglePlay = async () => {
-    if (!videoRef.current) return;
-
-    if (videoRef.current.paused) {
-      await videoRef.current.play();
-    } else {
-      videoRef.current.pause();
-    }
-  };
 
   const seekBy = (seconds: number) => {
     if (!videoRef.current) return;
     videoRef.current.currentTime = Math.max(0, Math.min((videoRef.current.duration || 0), videoRef.current.currentTime + seconds));
   };
 
-  const toggleMute = () => {
-    if (!videoRef.current) return;
-    videoRef.current.muted = !videoRef.current.muted;
-  };
-
-  const formatTime = (seconds: number) => {
-    if (!Number.isFinite(seconds) || seconds <= 0) {
-      return '0:00';
+  // Switch HLS audio track directly
+  const selectHlsAudioTrack = (idx: number) => {
+    setCurrentHlsAudio(idx);
+    if (hlsRef.current) {
+      hlsRef.current.audioTrack = idx;
     }
-
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
-
-    return hrs > 0 ? `${hrs}:${mins.toString().padStart(2, '0')}:${secs}` : `${mins}:${secs}`;
   };
 
-  const selectAudioTrack = (idx: number) => {
-    setCurrentAudio(idx);
-    if (playerRef.current && audioTracks[idx]) {
-      playerRef.current.setCurrentTrack(audioTracks[idx]);
+  // Switch DASH audio track
+  const selectDashAudioTrack = (idx: number) => {
+    setCurrentDashAudio(idx);
+    if (playerRef.current && dashAudioTracks[idx]) {
+      playerRef.current.setCurrentTrack(dashAudioTracks[idx]);
     }
-    setActiveMenu(null);
   };
 
-  const selectTextTrack = (idx: number) => {
-    setCurrentText(idx);
+  // Switch HLS subtitle track
+  const selectHlsSubtitleTrack = (idx: number) => {
+    setCurrentHlsSubtitle(idx);
+    if (hlsRef.current) {
+      hlsRef.current.subtitleTrack = idx;
+    }
+  };
+
+  // Switch DASH subtitle track
+  const selectDashTextTrack = (idx: number) => {
+    setCurrentDashText(idx);
     if (playerRef.current) {
       if (idx === -1) {
         playerRef.current.updateSettings({ streaming: { text: { defaultEnabled: false } } });
         playerRef.current.enableText(false);
-      } else if (textTracks[idx]) {
+      } else if (dashTextTracks[idx]) {
         playerRef.current.enableText(true);
-        playerRef.current.setCurrentTrack(textTracks[idx]);
+        playerRef.current.setCurrentTrack(dashTextTracks[idx]);
       }
+    }
+  };
+
+  // Select discrete HLS quality level or stream resolution
+  const selectHlsLevel = (levelIndex: number) => {
+    setCurrentHlsLevel(levelIndex);
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = levelIndex;
     }
     setActiveMenu(null);
   };
 
-  const selectQuality = (idx: number) => {
+  const selectQualityStream = (idx: number) => {
     onQualityChange(idx);
     setActiveMenu(null);
   };
 
-  const streamLanguageOptions = streams.reduce((options: Array<{ label: string; index: number }>, stream, idx) => {
-    const label = getStreamLanguage(stream);
-    if (!options.some((option) => option.label === label)) {
-      options.push({ label, index: idx });
-    }
-    return options;
-  }, []);
+  // Extract individual resolutions (e.g., 1080p, 720p, 480p, 360p)
+  const individualResolutions = Array.from(new Set(
+    streams.flatMap((s) => String(s.resolutions || '').split(',').map((r) => r.trim()).filter(Boolean))
+  )).sort((a, b) => (parseInt(b, 10) || 0) - (parseInt(a, 10) || 0));
+
+  const [showOverlay, setShowOverlay] = useState(true);
+  const hideTimerRef = useRef<any>(null);
+
+  const resetHideTimer = () => {
+    setShowOverlay(true);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => {
+      if (!activeMenu) {
+        setShowOverlay(false);
+      }
+    }, 3500);
+  };
+
+  useEffect(() => {
+    resetHideTimer();
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, [activeMenu]);
+
+  const streamLanguageOptions = streams.map((stream, idx) => ({
+    label: getStreamLanguage(stream, idx),
+    index: idx,
+  }));
+
+  const currentResolutionLabel = currentHlsLevel !== -1 && hlsLevels[currentHlsLevel]
+    ? `${hlsLevels[currentHlsLevel].height}p`
+    : 'Auto';
 
   return (
-    <div className="player-shell">
-      <div className="player-toolbar">
+    <div 
+      className="player-shell fixed inset-0 z-[99990] bg-black flex flex-col justify-center items-center overflow-hidden select-none" 
+      ref={containerRef}
+      onMouseMove={resetHideTimer}
+      onTouchStart={resetHideTimer}
+      onClick={resetHideTimer}
+    >
+      {/* 📺 Pure Fullscreen Video Element (No Browser Native Controls!) */}
+      <video 
+        ref={videoRef} 
+        className="w-full h-full max-h-screen object-contain cursor-pointer"
+        onClick={togglePlay}
+        playsInline
+      />
+
+      {/* 🎬 Overlay Container (Smooth Fade-In / Fade-Out) */}
+      <div className={`absolute inset-0 z-[99995] flex flex-col justify-between p-4 sm:p-8 transition-opacity duration-300 pointer-events-none ${showOverlay || activeMenu ? 'opacity-100' : 'opacity-0'}`}>
         
-        {/* Controls */}
-        <div className="player-controls">
-          <button onClick={togglePlay} className="control-button primary">
-            {isPlaying ? 'Pause' : 'Play'}
+        {/* ───────────── TOP BAR ───────────── */}
+        <div className="flex items-center justify-between pointer-events-auto bg-gradient-to-b from-black/80 via-black/40 to-transparent p-2 rounded-xl">
+          {/* Left: ← Back */}
+          <button 
+            onClick={onClose} 
+            className="flex items-center gap-2 text-white/90 hover:text-white font-bold text-sm sm:text-base px-3 py-1.5 rounded-lg transition-all cursor-pointer hover:bg-white/10"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            <span>Back</span>
           </button>
-          <button onClick={() => seekBy(-10)} className="control-button">
-            -10s
+
+          {/* Right: Movie Title */}
+          <div className="text-right">
+            <h3 className="text-sm sm:text-lg font-bold text-white drop-shadow-md truncate max-w-[200px] sm:max-w-xs">{title || 'Popcorn Movie'}</h3>
+          </div>
+        </div>
+
+        {/* ───────────── CENTER CONTROLS (↶ 10 | ▶ | 10 ↷) ───────────── */}
+        <div className="flex items-center justify-center gap-8 sm:gap-14 pointer-events-auto my-auto">
+          {/* Rewind 10s */}
+          <button 
+            onClick={() => seekBy(-10)} 
+            className="flex flex-col items-center justify-center w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-black/40 hover:bg-black/70 text-white border border-white/10 backdrop-blur-md transition-all active:scale-95 cursor-pointer"
+            aria-label="Rewind 10 seconds"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            <span className="text-[10px] sm:text-xs font-bold text-white -mt-1">10</span>
           </button>
-          <button onClick={() => seekBy(10)} className="control-button">
-            +10s
+
+          {/* Play / Pause Toggle */}
+          <button 
+            onClick={togglePlay} 
+            className="flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-cyan-500/90 hover:bg-cyan-400 text-black shadow-[0_0_24px_rgba(0,229,255,0.5)] backdrop-blur-md transition-all active:scale-95 cursor-pointer"
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+          >
+            {isPlaying ? (
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            ) : (
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="currentColor" className="ml-1"><path d="M8 5v14l11-7z"/></svg>
+            )}
           </button>
-          <button onClick={toggleMute} className="control-button">
-            {isMuted ? 'Unmute' : 'Mute'}
-          </button>
-          <span className="time-pill">{formatTime(currentTime)} / {formatTime(duration)}</span>
-          <button onClick={() => setActiveMenu(activeMenu === 'language' ? null : 'language')} className="control-button menu-trigger">
-            Language
-          </button>
-          <button onClick={() => setActiveMenu(activeMenu === 'quality' ? null : 'quality')} className="control-button menu-trigger">
-            Quality
-          </button>
-          <button onClick={() => setActiveMenu(activeMenu === 'subtitle' ? null : 'subtitle')} className="control-button menu-trigger">
-            Subtitle
+
+          {/* Forward 10s */}
+          <button 
+            onClick={() => seekBy(10)} 
+            className="flex flex-col items-center justify-center w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-black/40 hover:bg-black/70 text-white border border-white/10 backdrop-blur-md transition-all active:scale-95 cursor-pointer"
+            aria-label="Forward 10 seconds"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+            <span className="text-[10px] sm:text-xs font-bold text-white -mt-1">10</span>
           </button>
         </div>
 
-        {activeMenu && (
-          <div className="player-menu">
-            <div className="player-menu-title">
-              {activeMenu === 'language' && 'Select language'}
-              {activeMenu === 'quality' && 'Select quality'}
-              {activeMenu === 'subtitle' && 'Select subtitle'}
+        {/* ───────────── BOTTOM CONTROLS & TIMELINE BAR ───────────── */}
+        <div className="pointer-events-auto bg-gradient-to-t from-black/90 via-black/50 to-transparent p-3 sm:p-4 rounded-xl flex flex-col gap-2">
+          
+          {/* Progress Scrubber Line */}
+          <div className="relative w-full flex items-center group">
+            <input 
+              type="range"
+              min={0}
+              max={duration || 100}
+              value={currentTime}
+              onChange={handleSeekChange}
+              className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-[#00e5ff] focus:outline-none"
+              style={{
+                background: `linear-gradient(to right, #00e5ff 0%, #00e5ff ${(currentTime / (duration || 1)) * 100}%, rgba(255,255,255,0.2) ${(currentTime / (duration || 1)) * 100}%, rgba(255,255,255,0.2) 100%)`
+              }}
+            />
+          </div>
+
+          {/* Controls Bar Row: [ ▶  🔊  12:43 ] ... [ 2:32:18  CC  ⚙  ⛶ ] */}
+          <div className="flex items-center justify-between text-white text-xs sm:text-sm font-semibold pt-1">
+            {/* Left Controls */}
+            <div className="flex items-center gap-4">
+              <button onClick={togglePlay} className="hover:text-cyan-400 transition-colors cursor-pointer" aria-label="Play/Pause">
+                {isPlaying ? (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                ) : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                )}
+              </button>
+
+              <button onClick={toggleMute} className="hover:text-cyan-400 transition-colors cursor-pointer" aria-label="Mute/Unmute">
+                {isMuted ? (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                ) : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                )}
+              </button>
+
+              <div className="flex items-center gap-1.5 text-xs font-mono">
+                <span className="text-white font-bold">{formatTime(currentTime)}</span>
+                <span className="text-gray-500 font-bold">/</span>
+                <span className="text-gray-400">{formatTime(duration)}</span>
+              </div>
             </div>
 
-            {activeMenu === 'language' && (
-              <div className="menu-list">
-                {isDash && audioTracks.length > 0 ? audioTracks.map((track, idx) => (
-                  <button key={idx} onClick={() => selectAudioTrack(idx)} className={idx === currentAudio ? 'active' : ''}>
-                    {track.lang || `Track ${idx + 1}`}
-                  </button>
-                )) : streamLanguageOptions.map((option) => (
-                  <button key={option.label} onClick={() => selectQuality(option.index)} className={option.index === streamIndex ? 'active' : ''}>
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* Right Controls */}
+            <div className="flex items-center gap-3.5">
+              {/* CC Subtitles Button */}
+              <button 
+                onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'settings' ? null : 'settings'); }}
+                className={`font-black text-xs px-2 py-0.5 rounded border transition-colors cursor-pointer ${currentHlsSubtitle !== -1 || currentDashText !== -1 ? 'bg-cyan-500 text-black border-cyan-400' : 'border-white/30 text-white hover:border-white'}`}
+              >
+                CC
+              </button>
 
-            {activeMenu === 'quality' && (
-              <div className="menu-list">
-                {streams.map((stream, idx) => (
-                  <button key={stream.id || idx} onClick={() => selectQuality(idx)} className={idx === streamIndex ? 'active' : ''}>
-                    {getStreamLabel(stream, idx)}
-                  </button>
-                ))}
-              </div>
-            )}
+              {/* ⚙ Settings Gear Button (Quality & Dubs Popover Trigger) */}
+              <button 
+                onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'settings' ? null : 'settings'); }}
+                className={`p-1 hover:text-cyan-400 transition-colors cursor-pointer ${activeMenu === 'settings' ? 'text-cyan-400' : 'text-white'}`}
+                aria-label="Settings"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              </button>
 
-            {activeMenu === 'subtitle' && (
-              <div className="menu-list">
-                <button onClick={() => selectTextTrack(-1)} className={currentText === -1 ? 'active' : ''}>Off</button>
-                {isDash && textTracks.map((track, idx) => (
-                  <button key={idx} onClick={() => selectTextTrack(idx)} className={idx === currentText ? 'active' : ''}>
-                    {track.lang || `Subtitle ${idx + 1}`}
-                  </button>
-                ))}
-              </div>
+              {/* ⛶ Fullscreen Button */}
+              <button onClick={toggleFullscreen} className={`transition-colors cursor-pointer ${isFullscreen ? 'text-cyan-400' : 'hover:text-cyan-400'}`} aria-label="Fullscreen">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ⚙️ Popover Settings Drawer (Quality, Audio Dubs & Subtitles) */}
+      {activeMenu && (
+        <div 
+          className="fixed bottom-20 right-4 sm:right-8 z-[999999] w-72 sm:w-80 max-h-[60vh] overflow-y-auto bg-[#0a0c10]/95 border border-cyan-500/40 rounded-2xl shadow-2xl backdrop-blur-2xl p-4 text-white pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Quality Section */}
+          <div className="flex flex-col gap-2 mb-4">
+            <div className="flex items-center justify-between pb-2 border-b border-white/10">
+              <span className="text-xs font-black text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                <span>⚙️</span> Quality Options ({currentResolutionLabel})
+              </span>
+              <button onClick={() => setActiveMenu(null)} className="text-gray-400 hover:text-white text-xs font-bold">Close ✕</button>
+            </div>
+
+            <button 
+              onClick={() => selectHlsLevel(-1)} 
+              className={`w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between ${currentHlsLevel === -1 ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(0,229,255,0.4)]' : 'bg-white/5 hover:bg-white/10 text-gray-200'}`}
+            >
+              <span>⚡ Auto (Adaptive HD)</span>
+              {currentHlsLevel === -1 && <span className="text-[10px] font-black uppercase bg-black/30 px-2 py-0.5 rounded">Active</span>}
+            </button>
+
+            {hlsLevels.length > 0 ? (
+              hlsLevels.map((level, idx) => (
+                <button 
+                  key={idx} 
+                  onClick={() => selectHlsLevel(idx)} 
+                  className={`w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between ${idx === currentHlsLevel ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(0,229,255,0.4)]' : 'bg-white/5 hover:bg-white/10 text-gray-200'}`}
+                >
+                  <span>{level.height}p {level.height >= 720 ? 'HD' : 'SD'}</span>
+                  {level.bitrate && <span className="text-[10px] opacity-75 font-semibold">{(level.bitrate / 1000000).toFixed(1)} Mbps</span>}
+                </button>
+              ))
+            ) : individualResolutions.length > 0 ? (
+              individualResolutions.map((res, idx) => (
+                <button 
+                  key={res} 
+                  onClick={() => selectQualityStream(Math.min(idx, streams.length - 1))} 
+                  className={`w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all ${idx === 0 ? 'bg-cyan-500 text-black' : 'bg-white/5 hover:bg-white/10 text-gray-200'}`}
+                >
+                  {res}p HD
+                </button>
+              ))
+            ) : (
+              streams.map((stream, idx) => (
+                <button 
+                  key={stream.id || idx} 
+                  onClick={() => selectQualityStream(idx)} 
+                  className={`w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all ${idx === streamIndex ? 'bg-cyan-500 text-black' : 'bg-white/5 hover:bg-white/10 text-gray-200'}`}
+                >
+                  {stream.resolutions ? `${stream.resolutions}p` : `Server Stream ${idx + 1}`}
+                </button>
+              ))
             )}
           </div>
-        )}
 
-        <button onClick={onClose} className="close-player">Close</button>
-      </div>
-      
-      <div className="video-stage">
-        <video ref={videoRef} controls autoPlay className="movie-video"></video>
-      </div>
+          {/* Audio & Subtitles Section */}
+          <div className="flex flex-col gap-2 pt-2 border-t border-white/10">
+            <div className="text-xs font-black text-cyan-400 uppercase tracking-wider mb-1">Audio & Dubbing</div>
+            <div className="flex flex-col gap-1.5">
+              {dubs && dubs.length > 0 ? (
+                dubs.map((dub: any) => (
+                  <button 
+                    key={dub.subjectId} 
+                    onClick={() => switchDubLanguage(dub.subjectId)} 
+                    disabled={isSwitchingDub}
+                    className={`w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-between ${
+                      String(dub.subjectId) === String(currentDubSubjectId)
+                        ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(0,229,255,0.4)]'
+                        : 'bg-white/5 hover:bg-white/10 text-gray-200'
+                    }`}
+                  >
+                    <span>🔊 {dub.lanName || dub.lanCode || 'Audio Track'} {dub.original ? '(Original)' : ''}</span>
+                    {String(dub.subjectId) === String(currentDubSubjectId) && (
+                      <span className="text-[10px] font-black uppercase bg-black/30 px-2 py-0.5 rounded">Active</span>
+                    )}
+                  </button>
+                ))
+              ) : hlsAudioTracks.length > 0 ? (
+                hlsAudioTracks.map((track, idx) => (
+                  <button 
+                    key={idx} 
+                    onClick={() => selectHlsAudioTrack(idx)} 
+                    className={`w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all ${idx === currentHlsAudio ? 'bg-cyan-500 text-black' : 'bg-white/5 hover:bg-white/10 text-gray-200'}`}
+                  >
+                    🔊 {track.name || track.lang || `Audio Track ${idx + 1}`}
+                  </button>
+                ))
+              ) : isDash && dashAudioTracks.length > 0 ? (
+                dashAudioTracks.map((track, idx) => (
+                  <button 
+                    key={idx} 
+                    onClick={() => selectDashAudioTrack(idx)} 
+                    className={`w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all ${idx === currentDashAudio ? 'bg-cyan-500 text-black' : 'bg-white/5 hover:bg-white/10 text-gray-200'}`}
+                  >
+                    🔊 {track.lang || `Audio Track ${idx + 1}`}
+                  </button>
+                ))
+              ) : (
+                streamLanguageOptions.map((option) => (
+                  <button 
+                    key={option.index} 
+                    onClick={() => selectQualityStream(option.index)} 
+                    className={`w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all ${option.index === streamIndex ? 'bg-cyan-500 text-black' : 'bg-white/5 hover:bg-white/10 text-gray-200'}`}
+                  >
+                    🔊 {option.label}
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className="text-xs font-black text-cyan-400 uppercase tracking-wider mt-3">Subtitles</div>
+            <div className="flex flex-col gap-1.5">
+              <button 
+                onClick={() => isDash ? selectDashTextTrack(-1) : selectHlsSubtitleTrack(-1)} 
+                className={`w-full text-left px-3.5 py-2 rounded-xl font-bold text-xs transition-all ${(isDash ? currentDashText : currentHlsSubtitle) === -1 ? 'bg-cyan-500 text-black' : 'bg-white/5 hover:bg-white/10 text-gray-200'}`}
+              >
+                💬 Off
+              </button>
+              {hlsSubtitleTracks.length > 0 && hlsSubtitleTracks.map((track, idx) => (
+                <button 
+                  key={idx} 
+                  onClick={() => selectHlsSubtitleTrack(idx)} 
+                  className={`w-full text-left px-3.5 py-2 rounded-xl font-bold text-xs transition-all ${idx === currentHlsSubtitle ? 'bg-cyan-500 text-black' : 'bg-white/5 hover:bg-white/10 text-gray-200'}`}
+                >
+                  💬 {track.name || track.lang || `Subtitle ${idx + 1}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
-  )
+  );
 }
 
 type TabType = 'home' | 'movies' | 'tvshows' | 'anime';
@@ -868,13 +1219,25 @@ function App() {
     }
   }, []);
   
-  const [movies, setMovies] = useState<any[]>([])
+  // Helper for 0s instantaneous local storage cache
+  const getCachedJson = (key: string, fallback: any) => {
+    try {
+      const item = localStorage.getItem(key);
+      return item ? JSON.parse(item) : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const homeCache = getCachedJson('popcorn_cache_home_v3', {});
+
+  const [movies, setMovies] = useState<any[]>(() => getCachedJson('popcorn_cache_catalog_v3', []))
   const moviesRef = useRef<any[]>([])
   useEffect(() => {
     moviesRef.current = movies;
   }, [movies]);
 
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => !getCachedJson('popcorn_cache_catalog_v3', null))
   const roastMessage = useRotatingMessage(ROAST_LOADING_MESSAGES);
   const roastMoreMessage = useRotatingMessage(ROAST_LOADING_MORE, 3000);
   const [error, setError] = useState<string | null>(null)
@@ -882,10 +1245,35 @@ function App() {
   const [isFetchingPlay, setIsFetchingPlay] = useState(false)
   const [activeTab, setActiveTab] = useState<TabType>('home')
 
-  // UI State
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  // UI & Settings Modals State
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false)
+  const [isWatchHistoryOpen, setIsWatchHistoryOpen] = useState(false)
+  const [isDownloadsModalOpen, setIsDownloadsModalOpen] = useState(false)
+  const [isPreferencesModalOpen, setIsPreferencesModalOpen] = useState(false)
+
+  // Preferences State
+  const [userPreferences, setUserPreferences] = useState(() => getCachedJson('popcorn_user_preferences', {
+    quality: '1080p',
+    audioLang: 'Hindi',
+    autoPlayNext: true,
+  }))
+
+  // Watch History State
+  const [watchHistory, setWatchHistory] = useState<any[]>(() => getCachedJson('popcorn_watch_history', []))
   
+  const addToWatchHistory = (item: any) => {
+    if (!item) return;
+    const entry = {
+      id: item.id || item.subjectId,
+      title: item.title,
+      cover: item.cover?.url || item.coverUrl || item.cover || '',
+      watchedAt: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    const updated = [entry, ...watchHistory.filter(x => x.id !== entry.id)].slice(0, 30);
+    setWatchHistory(updated);
+    localStorage.setItem('popcorn_watch_history', JSON.stringify(updated));
+  };
+
   const [filterOptions, setFilterOptions] = useState<any[]>([])
   const [currentFilters, setCurrentFilters] = useState<Partial<FilterState>>({
     genre: 'All', country: 'India', year: 'All', classify: 'All', sort: 'Latest'
@@ -911,8 +1299,118 @@ function App() {
   const [detailsLoading, setDetailsLoading] = useState(false)
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTab>('episodes')
 
+  // Mobile App Curated Rows & Hero Carousel State (0s instant load)
+  const [heroMovies, setHeroMovies] = useState<any[]>(homeCache.hero || [])
+  const [hindiMovies, setHindiMovies] = useState<any[]>(homeCache.hindi || [])
+  const [bollywoodMovies, setBollywoodMovies] = useState<any[]>(homeCache.bolly || [])
+  const [hollywoodMovies, setHollywoodMovies] = useState<any[]>(homeCache.holly || [])
+  const [actionMovies, setActionMovies] = useState<any[]>(homeCache.act || [])
+  const [thrillerMovies, setThrillerMovies] = useState<any[]>(homeCache.thrill || [])
+  const [horrorMovies, setHorrorMovies] = useState<any[]>(homeCache.hor || [])
+  const [heroIndex, setHeroIndex] = useState(0)
+
   useEffect(() => {
+    if (!isAccountMenuOpen) return;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.account-dropdown') && !target.closest('.profile-chip') && !target.closest('.mobile-nav-item')) {
+        setIsAccountMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [isAccountMenuOpen]);
+
+  useEffect(() => {
+    if (activeTab === 'home') {
+      const fetchList = async (promise: Promise<any>) => {
+        try {
+          const res = await promise;
+          const items = res || [];
+          return items.filter((item: any) => {
+            const hasCover = item.cover && (item.cover.url || typeof item.cover === 'string');
+            return hasCover && (item.subjectType === 1 || item.subjectType === 2 || !item.subjectType);
+          });
+        } catch (e) {
+          return [];
+        }
+      };
+
+      Promise.all([
+        fetchList(getCategoryList("0", 1, 10, { classify: 'Hindi dub' })),
+        fetchList(getCategoryList("0", 1, 20, { classify: 'Hindi dub' })),
+        fetchList(getCategoryList("0", 1, 20, { country: 'India' })),
+        fetchList(getCategoryList("0", 1, 20, { country: 'United States' })),
+        fetchList(getCategoryList("0", 1, 20, { genre: 'Action' })),
+        fetchList(getCategoryList("0", 1, 20, { genre: 'Thriller' })),
+        fetchList(getCategoryList("0", 1, 20, { genre: 'Horror' }))
+      ]).then(([hero, hindi, bolly, holly, act, thrill, hor]) => {
+        if (hero.length > 0) setHeroMovies(hero);
+        if (hindi.length > 0) setHindiMovies(hindi);
+        if (bolly.length > 0) setBollywoodMovies(bolly);
+        if (holly.length > 0) setHollywoodMovies(holly);
+        if (act.length > 0) setActionMovies(act);
+        if (thrill.length > 0) setThrillerMovies(thrill);
+        if (hor.length > 0) setHorrorMovies(hor);
+
+        try {
+          localStorage.setItem('popcorn_cache_home_v3', JSON.stringify({
+            hero: hero.length > 0 ? hero : homeCache.hero,
+            hindi: hindi.length > 0 ? hindi : homeCache.hindi,
+            bolly: bolly.length > 0 ? bolly : homeCache.bolly,
+            holly: holly.length > 0 ? holly : homeCache.holly,
+            act: act.length > 0 ? act : homeCache.act,
+            thrill: thrill.length > 0 ? thrill : homeCache.thrill,
+            hor: hor.length > 0 ? hor : homeCache.hor,
+          }));
+        } catch (e) {
+          console.warn('LocalStorage cache write error:', e);
+        }
+      });
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (heroMovies.length > 0) {
+      const timer = setInterval(() => {
+        setHeroIndex(prev => (prev + 1) % heroMovies.length);
+      }, 5000);
+      return () => clearInterval(timer);
+    }
+  }, [heroMovies.length]);
+
+  const openCategoryMore = (filterParams: Partial<FilterState>) => {
+    setSearchQuery('');
+    window.location.hash = '';
+    setSelectedMovieId(null);
+    setCurrentFilters({ genre: 'All', country: 'All', year: 'All', classify: 'All', sort: 'Latest', ...filterParams });
+    setPage(1);
+    setHasMore(true);
+    setActiveTab('movies');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const scrollRow = (rowId: string, direction: 'left' | 'right') => {
+    const el = document.getElementById(rowId);
+    if (el) {
+      const scrollAmount = direction === 'left' ? -380 : 380;
+      el.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
+
+  const handleTabClick = (tab: TabType) => {
+    setActiveTab(tab);
+    setSearchQuery('');
+    window.location.hash = '';
+    setSelectedMovieId(null);
     setCurrentFilters({ genre: 'All', country: 'All', year: 'All', classify: 'All', sort: 'Latest' });
+    setPage(1);
+    setHasMore(true);
+  };
+
+  useEffect(() => {
     setFilterOptions([]);
     setOpenFilterMenu(null);
 
@@ -943,9 +1441,13 @@ function App() {
       fetchPromise = searchMovies(searchQuery.trim(), page, 20)
     } else {
       let tabId = "0";
-      if (activeTab === 'movies') tabId = "1";
-      else if (activeTab === 'tvshows') tabId = "2";
-      else if (activeTab === 'anime') tabId = "1006";
+      if (activeTab === 'movies') {
+        tabId = currentFilters.classify === 'Hindi dub' ? "0" : "1";
+      } else if (activeTab === 'tvshows') {
+        tabId = "2";
+      } else if (activeTab === 'anime') {
+        tabId = "1006";
+      }
 
       let filtersToUse = currentFilters;
       if (activeTab === 'home') {
@@ -969,6 +1471,11 @@ function App() {
         setMovies(prev => {
           if (page === 1) {
             setHasMore(validItems.length > 0);
+            try {
+              localStorage.setItem('popcorn_cache_catalog_v3', JSON.stringify(validItems));
+            } catch (e) {
+              console.warn('LocalStorage catalog cache write error:', e);
+            }
             return validItems;
           }
           
@@ -1040,8 +1547,7 @@ function App() {
     }
   }
 
-  const handleMovieClick = async (movie: any) => {
-    const subjectId = movie.id || movie.subjectId;
+  const loadMovieDetails = useCallback(async (subjectId: string) => {
     setSelectedMovieId(subjectId);
     setDetailsLoading(true);
     setMovieDetails(null);
@@ -1055,7 +1561,7 @@ function App() {
       const details = await getSubjectDetails(subjectId);
       setMovieDetails(details);
       
-      if (details.subjectType === 2 || movie.type === 2 || details.seasons?.length > 0) {
+      if (details.subjectType === 2 || details.seasons?.length > 0) {
         const seasons = await getSeasonInfo(subjectId);
         setSeasonInfo(seasons);
         if (seasons.seasons && seasons.seasons.length > 0) {
@@ -1076,13 +1582,38 @@ function App() {
         }
       } else {
         const resources = await getResourceLinks(subjectId, '0');
-        setMovieDownloadLinks(getDownloadLinks(resources.list || [], details.title || movie.title));
+        setMovieDownloadLinks(getDownloadLinks(resources.list || [], details.title));
       }
     } catch (err) {
       console.error(err);
     }
     setDetailsLoading(false);
-  }
+  }, []);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      if (hash.startsWith('#movie/')) {
+        const id = hash.replace('#movie/', '').trim();
+        if (id) {
+          loadMovieDetails(id);
+          return;
+        }
+      }
+      setSelectedMovieId(null);
+      setMovieDetails(null);
+    };
+
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [loadMovieDetails]);
+
+  const handleMovieClick = (movie: any) => {
+    addToWatchHistory(movie);
+    const subjectId = movie.id || movie.subjectId;
+    window.location.hash = `#movie/${subjectId}`;
+  };
 
   const handleSeasonChange = async (seasonNum: number) => {
     if (!selectedMovieId) return;
@@ -1134,24 +1665,22 @@ function App() {
 
     setIsFetchingPlay(true);
     try {
-      const streams = await getPlayInfo(selectedMovieId, se, ep);
+      const res = await getPlayInfo(selectedMovieId, se, ep);
+      const streams = Array.isArray(res) ? res : (res?.streams || []);
       if (!streams || streams.length === 0) {
         alert('No streams found for this movie/episode.');
         return;
       }
 
       const sortedStreams = [...streams].sort((a: any, b: any) => getStreamScore(b) - getStreamScore(a));
-      const supportedStreams = sortedStreams.filter((stream: any) => !isHevcStream(stream));
       const bestStream = sortedStreams[0];
       const authParams = getAuthParams(bestStream);
-      const browserStream = supportedStreams.length > 0
-        ? {
-            url: supportedStreams[0].url,
-            authParams: getAuthParams(supportedStreams[0]),
-            streams: supportedStreams,
-            streamIndex: 0,
-          }
-        : undefined;
+      const browserStream = {
+        url: bestStream.url,
+        authParams: getAuthParams(bestStream),
+        streams: sortedStreams,
+        streamIndex: 0,
+      };
 
       setVlcFallback({
         title: bestStream.title || movieDetails?.title || 'Popcorn stream',
@@ -1183,37 +1712,25 @@ function App() {
 
     setIsFetchingPlay(true);
     try {
-      let streams = await getPlayInfo(selectedMovieId, se, ep);
+      const res = await getPlayInfo(selectedMovieId, se, ep);
+      const streams = Array.isArray(res) ? res : (res?.streams || []);
 
       console.log('All available streams:', streams);
       if (streams && streams.length > 0) {
-        const supportedStreams = streams
-          .filter((stream: any) => !isHevcStream(stream))
-          .sort((a: any, b: any) => getStreamScore(b) - getStreamScore(a));
-
-        const bestVlcStream = [...streams].sort((a: any, b: any) => getStreamScore(b) - getStreamScore(a))[0];
-        const vlcAuthParams = getAuthParams(bestVlcStream);
-
-        if (supportedStreams.length === 0) {
-          setVlcFallback({
-            title: bestVlcStream.title || 'HEVC stream',
-            format: bestVlcStream.format || '',
-            resolution: bestVlcStream.resolutions || '',
-            directUrl: appendAuthParams(bestVlcStream.url, vlcAuthParams),
-            vlcUrl: toVlcProxyUrl(bestVlcStream.url, vlcAuthParams),
-            allStreams: streams,
-            subjectId: selectedMovieId,
-            se: se,
-            ep: ep
-          });
-        } else {
-          const bestStream = supportedStreams[0];
-          const streamIndex = supportedStreams.findIndex((stream: any) => stream === bestStream);
-          const authParams = getAuthParams(bestStream);
-          
-          setVlcFallback(null);
-          setPlayingVideo({ url: bestStream.url, authParams, streams: supportedStreams, streamIndex });
-        }
+        const sortedStreams = [...streams].sort((a: any, b: any) => getStreamScore(b) - getStreamScore(a));
+        const bestStream = sortedStreams[0];
+        const authParams = getAuthParams(bestStream);
+        
+        setVlcFallback(null);
+        setPlayingVideo({
+          url: bestStream.url,
+          authParams,
+          streams: sortedStreams,
+          streamIndex: 0,
+          subjectId: selectedMovieId,
+          dubs: movieDetails?.dubs || [],
+          title: bestStream.title || movieDetails?.title
+        });
       } else {
         alert('No streams found for this movie/episode.');
       }
@@ -1275,6 +1792,9 @@ function App() {
             streams={playingVideo.streams}
             streamIndex={playingVideo.streamIndex}
             startTime={playingVideo.startTime}
+            title={playingVideo.title || movieDetails?.title}
+            subjectId={playingVideo.subjectId || selectedMovieId || undefined}
+            dubs={playingVideo.dubs || movieDetails?.dubs || []}
             onQualityChange={handleQualityChange}
             onClose={() => setPlayingVideo(null)}
           />
@@ -1293,77 +1813,18 @@ function App() {
         />
       )}
       
-      {/* Sidebar Mobile Backdrop */}
-      {isMobileMenuOpen && (
-        <div className="sidebar-backdrop" onClick={() => setIsMobileMenuOpen(false)}></div>
-      )}
-      
-      {/* Sidebar */}
-      <aside className={`sidebar ${isMobileMenuOpen ? 'is-open' : ''}`}>
-        <h1 className="brand-mark" aria-label="Popcorn Movies">
-          <div style={{ display: 'block' }}>
-            <span className="brand-pop">Pop</span><span className="brand-corn">corn</span>
-          </div>
-          <div className="brand-movies" style={{ display: 'block', fontSize: '0.45em', fontWeight: '500', color: '#ffb74d', letterSpacing: '2px', textTransform: 'uppercase', textAlign: 'right', marginTop: '2px', paddingRight: '5px' }}>Movies</div>
-        </h1>
-        <nav className="sidebar-nav">
-          <a href="#" className={activeTab === 'home' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('home'); setSearchQuery(''); setPage(1); setHasMore(true); setIsMobileMenuOpen(false); }}>Home</a>
-          <a href="#" className={activeTab === 'movies' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('movies'); setSearchQuery(''); setPage(1); setHasMore(true); setIsMobileMenuOpen(false); }}>Movies</a>
-          <a href="#" className={activeTab === 'tvshows' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('tvshows'); setSearchQuery(''); setPage(1); setHasMore(true); setIsMobileMenuOpen(false); }}>TV Shows</a>
-          <a href="#" className={activeTab === 'anime' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('anime'); setSearchQuery(''); setPage(1); setHasMore(true); setIsMobileMenuOpen(false); }}>Anime</a>
-        </nav>
-        
-        {/* Mobile Sidebar Account Section */}
-        {account && (
-          <div className="sidebar-account-section">
-            <div className="account-dropdown-divider" style={{ margin: '0 -16px 16px -16px' }}></div>
-            <div className="account-dropdown-header">
-              <div className="profile-chip large" style={{ backgroundImage: `url(${account.avatar})`, backgroundSize: 'cover' }}></div>
-              <div className="account-info">
-                <span className="account-name">{account.username}</span>
-                <span className="account-email">{account.email}</span>
-                {account.tier === 'premium' ? (
-                  <span className="account-badge premium">⭐ Premium Member</span>
-                ) : (
-                  <span className="account-badge trial">✨ Free Trial ({Math.ceil((new Date(account.trialEndDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24))} days left)</span>
-                )}
-              </div>
-            </div>
-            {account.tier !== 'premium' && (
-              <button className="upgrade-premium-btn" onClick={() => { setIsMobileMenuOpen(false); setIsPremiumModalOpen(true); }}>
-                Upgrade to Premium
-              </button>
-            )}
-            <ul className="account-menu-list">
-              <li onClick={() => { setIsMobileMenuOpen(false); setEditUsername(account.username); setIsEditProfileModalOpen(true); }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                Edit Profile
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                Watch History
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-                Preferences
-              </li>
-              <li className="logout" onClick={() => { localStorage.removeItem('popcorn_account'); window.location.reload(); }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                Log Out
-              </li>
-            </ul>
-          </div>
-        )}
-      </aside>
-
       {/* Main Content */}
       <main className="content-area">
-        <header className="content-header">
-          <button className="menu-toggle" aria-label="Open navigation" onClick={() => setIsMobileMenuOpen(true)}>
-            <span></span>
-            <span></span>
-            <span></span>
-          </button>
+        <header className="content-header flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <h1 className="flex items-center gap-2.5 cursor-pointer flex-shrink-0" onClick={() => { handleTabClick('home'); window.location.hash = ''; }}>
+              <img src="/icon.png" alt="Popcorn Movies" className="w-8 h-8 sm:w-10 sm:h-10 object-contain drop-shadow-[0_0_14px_rgba(0,229,255,0.6)]" />
+              <div className="flex flex-col leading-none">
+                <span className="text-xl sm:text-2xl font-black text-white drop-shadow-[0_0_14px_rgba(255,255,255,0.95)] tracking-tight">Popcorn</span>
+                <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-widest text-[#f5b84b] italic self-end drop-shadow-[0_0_8px_rgba(245,184,75,0.9)] -mt-0.5">MOVIES</span>
+              </div>
+            </h1>
+          </div>
           <div className="search-shell">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m21 21-4.35-4.35" /><circle cx="11" cy="11" r="7" /></svg>
             <input 
@@ -1374,75 +1835,482 @@ function App() {
             />
             <span className="search-shortcut">CTRL + K</span>
           </div>
-          <div className="topbar-actions" style={{ position: 'relative' }}>
-            <button className="notification-button" aria-label="Notifications"><span>3</span></button>
-            <div 
-              className="profile-chip" 
-              aria-label="Profile" 
-              onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
-              style={account ? { backgroundImage: `url(${account.avatar})`, backgroundSize: 'cover' } : {}}
-            ></div>
-            
-            {/* Account Settings Dropdown */}
-            {isAccountMenuOpen && account && (
-              <div className="account-dropdown">
-                <div className="account-dropdown-header">
-                  <div className="profile-chip large" style={{ backgroundImage: `url(${account.avatar})`, backgroundSize: 'cover' }}></div>
-                  <div className="account-info">
-                    <span className="account-name">{account.username}</span>
-                    <span className="account-email">{account.email}</span>
-                    {account.tier === 'premium' ? (
-                      <span className="account-badge premium">⭐ Premium Member</span>
-                    ) : (
-                      <span className="account-badge trial">✨ Free Trial ({Math.ceil((new Date(account.trialEndDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24))} days left)</span>
-                    )}
+        </header>
+
+        {selectedMovieId ? (
+          <div className="movie-details-container">
+            {/* Ambient Blurred Backdrop */}
+            {movieDetails?.cover && (
+              <div 
+                className="details-hero-backdrop" 
+                style={{ backgroundImage: `url(${movieDetails.cover?.url || movieDetails.cover})` }}
+              />
+            )}
+
+            {/* Glass Back Button */}
+            <button
+              onClick={() => { window.location.hash = ''; setSelectedMovieId(null); }}
+              className="details-glass-back"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+              Back to Movies
+            </button>
+
+            {detailsLoading ? (
+              <div className="py-20 text-center text-gray-400">
+                <div className="loading-spinner mb-4 inline-block"></div>
+                <p className="text-lg font-medium text-white">Loading movie details...</p>
+              </div>
+            ) : movieDetails && (
+              <div className="details-content-wrapper">
+                {/* Hero Info Card Header */}
+                <div className="details-hero-header">
+                  <div className="details-poster-box">
+                    <img 
+                      src={movieDetails.cover?.url || movieDetails.cover} 
+                      alt={movieDetails.title} 
+                      className="details-poster-img" 
+                    />
+                  </div>
+
+                  <div className="details-header-meta">
+                    <h2 className="details-main-title">{movieDetails.title}</h2>
+                    
+                    <div className="details-pills-row">
+                      {movieDetails.year || movieDetails.releaseDate?.substring(0, 4) ? (
+                        <span className="details-pill-year">{movieDetails.year || movieDetails.releaseDate?.substring(0, 4)}</span>
+                      ) : null}
+                      {movieDetails.imdbRatingValue && (
+                        <span className="details-pill-rating">⭐ IMDb {movieDetails.imdbRatingValue}</span>
+                      )}
+                      {movieDetails.genre && (
+                        <span className="details-pill-genre">{movieDetails.genre}</span>
+                      )}
+                    </div>
+
+                    {/* Action Buttons Bar */}
+                    <div className="details-action-bar">
+                      {(!seasonInfo || !seasonInfo.seasons || seasonInfo.seasons.length === 0) ? (
+                        <>
+                          <button 
+                            onClick={() => handlePlay('0', '0')}
+                            className="neon-play-btn"
+                            disabled={isFetchingPlay}
+                          >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                            Play Movie
+                          </button>
+                          <button
+                            onClick={() => openPlaybackOptions('0', '0')}
+                            className="glass-info-btn"
+                            disabled={isFetchingPlay}
+                          >
+                            ⚙️ Quality / Sources
+                          </button>
+                        </>
+                      ) : (
+                        <button 
+                          onClick={() => { setActiveDetailTab('episodes'); }}
+                          className="neon-play-btn"
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                          Watch Episodes
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-                {account.tier !== 'premium' && (
-                  <button className="upgrade-premium-btn" onClick={() => { setIsAccountMenuOpen(false); setIsPremiumModalOpen(true); }}>
-                    Upgrade to Premium
+
+                {/* Tab Navigation */}
+                <div className="details-nav-tabs">
+                  <button 
+                    onClick={() => setActiveDetailTab('episodes')} 
+                    className={`details-tab-btn ${activeDetailTab === 'episodes' ? 'active' : ''}`}
+                  >
+                    📺 Watch & Episodes
                   </button>
+                  <button 
+                    onClick={() => setActiveDetailTab('details')} 
+                    className={`details-tab-btn ${activeDetailTab === 'details' ? 'active' : ''}`}
+                  >
+                    📖 Story & Details
+                  </button>
+                  <button 
+                    onClick={() => setActiveDetailTab('more')} 
+                    className={`details-tab-btn ${activeDetailTab === 'more' ? 'active' : ''}`}
+                  >
+                    🎬 More Like This
+                  </button>
+                </div>
+
+                {/* Tab 1: Episodes / Play Sources */}
+                {activeDetailTab === 'episodes' && (
+                  (!seasonInfo || !seasonInfo.seasons || seasonInfo.seasons.length === 0) ? (
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur-md">
+                      <h3 className="text-sm font-extrabold text-white mb-2">Direct Playback & Downloads</h3>
+                      <p className="text-xs text-gray-400 mb-5">Select a stream link below or tap Play Movie for instant playback.</p>
+
+                      {movieDownloadLinks.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {movieDownloadLinks.map((link, idx) => (
+                            <a
+                              key={idx}
+                              href={link.url}
+                              download={link.filename}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-500/30 p-3 rounded-xl flex items-center justify-between text-white font-bold text-xs transition-all"
+                            >
+                              <span className="flex items-center gap-2">
+                                <span>⚡</span> {link.label}
+                              </span>
+                              <span className="text-cyan-400">Download ⬇️</span>
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => openPlaybackOptions('0', '0')}
+                          className="px-5 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs border border-white/10 transition-colors"
+                        >
+                          🔍 Find All Stream Sources & Quality Options
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {/* Seasons Bar */}
+                      <div>
+                        <h3 className="text-xs font-extrabold text-gray-400 uppercase tracking-wider mb-2">Seasons</h3>
+                        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+                          {seasonInfo.seasons.map((s: any) => (
+                            <button
+                              key={s.se}
+                              onClick={() => handleSeasonChange(s.se)}
+                              className={`px-4 py-2 rounded-xl text-xs font-extrabold border transition-all ${selectedSeason === s.se ? 'bg-cyan-500 text-black border-cyan-400 shadow-[0_0_14px_rgba(0,229,255,0.4)]' : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'}`}
+                            >
+                              Season {s.se}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Episode List */}
+                      <div>
+                        <h3 className="text-xs font-extrabold text-gray-400 uppercase tracking-wider mb-2">Episodes</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {episodeList.length === 0 ? (
+                            <div className="py-8 text-center text-gray-400 text-sm">Loading episode list...</div>
+                          ) : (
+                            episodeList.map((ep: any) => (
+                              <div key={ep.episode} className="bg-white/5 hover:bg-white/10 border border-white/8 p-3 rounded-xl flex items-center justify-between gap-3 transition-all">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className="w-9 h-9 rounded-lg bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 font-black flex items-center justify-center text-xs flex-shrink-0">
+                                    {ep.ep}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <h4 className="font-bold text-white text-xs truncate">{ep.title || `Episode ${ep.ep}`}</h4>
+                                    {ep.size && <p className="text-[11px] text-gray-400">{(parseInt(ep.size) / (1024*1024)).toFixed(1)} MB</p>}
+                                  </div>
+                                </div>
+                                <button 
+                                  onClick={() => handlePlay(String(selectedSeason), String(ep.ep))}
+                                  className="px-3 py-1.5 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold text-xs rounded-lg flex items-center gap-1 shadow-md transition-colors cursor-pointer"
+                                  disabled={isFetchingPlay}
+                                >
+                                  ▶ Play
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
                 )}
-                <div className="account-dropdown-divider"></div>
-                <ul className="account-menu-list">
-                  <li onClick={() => { setIsAccountMenuOpen(false); setEditUsername(account.username); setIsEditProfileModalOpen(true); }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                    Edit Profile
-                  </li>
-                  <li>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    Watch History
-                  </li>
-                  <li>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-                    Preferences
-                  </li>
-                </ul>
-                <div className="account-dropdown-divider"></div>
-                <ul className="account-menu-list">
-                  <li className="logout" onClick={() => { localStorage.removeItem('popcorn_account'); window.location.reload(); }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                    Log Out
-                  </li>
-                </ul>
+
+                {/* Tab 2: Details & Story */}
+                {activeDetailTab === 'details' && (
+                  <div className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur-md space-y-5">
+                    <div>
+                      <h3 className="text-xs font-extrabold text-cyan-400 uppercase tracking-wider mb-2">Synopsis & Storyline</h3>
+                      <p className="text-sm text-gray-200 leading-relaxed">{movieDetails.description || 'No description available for this title.'}</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-4 border-t border-white/10">
+                      <div className="bg-black/40 p-3 rounded-xl border border-white/5">
+                        <span className="text-[11px] text-gray-400 font-bold block mb-0.5">Title</span>
+                        <p className="text-xs font-bold text-white truncate">{movieDetails.title}</p>
+                      </div>
+                      <div className="bg-black/40 p-3 rounded-xl border border-white/5">
+                        <span className="text-[11px] text-gray-400 font-bold block mb-0.5">Release Year</span>
+                        <p className="text-xs font-bold text-white">{movieDetails.year || movieDetails.releaseDate?.substring(0,4) || 'Unknown'}</p>
+                      </div>
+                      <div className="bg-black/40 p-3 rounded-xl border border-white/5">
+                        <span className="text-[11px] text-gray-400 font-bold block mb-0.5">IMDb Rating</span>
+                        <p className="text-xs font-bold text-amber-400">⭐ {movieDetails.imdbRatingValue || movieDetails.rate || 'N/A'}</p>
+                      </div>
+                      {movieDetails.genre && (
+                        <div className="bg-black/40 p-3 rounded-xl border border-white/5 col-span-2">
+                          <span className="text-[11px] text-gray-400 font-bold block mb-0.5">Genres</span>
+                          <p className="text-xs font-bold text-cyan-300">{movieDetails.genre}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tab 3: More Like This */}
+                {activeDetailTab === 'more' && (
+                  <div>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                      {moreLikeThis.length > 0 ? moreLikeThis.map((m: any, idx: number) => (
+                        <div 
+                          key={m.id || m.subjectId || idx} 
+                          className="row-poster-card" 
+                          onClick={() => handleMovieClick(m)}
+                        >
+                          <img src={m.cover?.url || m.coverUrl || m.cover} alt={m.title} className="row-poster-img" />
+                          <span className="row-poster-title">{m.title}</span>
+                        </div>
+                      )) : (
+                        <div className="col-span-full py-8 text-center text-gray-400 text-sm">No similar items found.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        </header>
+        ) : (
+          <div className="movie-list-view pb-24">
+            {/* 📱 MOBILE HERO SLIDER CAROUSEL */}
+            {activeTab === 'home' && !searchQuery && heroMovies.length > 0 && (
+              <div className="mobile-hero-slider">
+                <img 
+                  src={heroMovies[heroIndex]?.cover?.url || heroMovies[heroIndex]?.coverUrl || heroMovies[heroIndex]?.cover} 
+                  alt={heroMovies[heroIndex]?.title} 
+                  className="mobile-hero-bg" 
+                />
+                <div className="mobile-hero-overlay"></div>
+                <div className="mobile-hero-body">
+                  <h2 className="mobile-hero-title">{heroMovies[heroIndex]?.title}</h2>
+                  <div className="glass-action-panel">
+                    <button 
+                      onClick={() => handleMovieClick(heroMovies[heroIndex])} 
+                      className="neon-play-btn"
+                    >
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4l12 6-12 6z"/></svg> ▶ Play
+                    </button>
+                    <button 
+                      onClick={() => handleMovieClick(heroMovies[heroIndex])} 
+                      className="glass-info-btn"
+                    >
+                      ℹ Info
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
-        <section className="page-heading">
-          <p className="section-kicker">Now playing around you</p>
-          <h2>
-            {searchQuery 
-              ? `Search Results: ${searchQuery}` 
-              : activeTab === 'home' ? 'Latest & For You'
-              : activeTab === 'movies' ? 'Movies'
-              : activeTab === 'tvshows' ? 'TV Shows'
-              : activeTab === 'anime' ? 'Anime'
-              : 'Trending Now'
-            }
-          </h2>
-        </section>
+            {/* 📱 CURATED MOVIE ROWS */}
+            {activeTab === 'home' && !searchQuery && (
+              <div className="mobile-curated-rows">
+                {hindiMovies.length > 0 && (
+                  <div className="movie-row-section">
+                    <div className="movie-row-header flex justify-between items-center">
+                      <h3 className="movie-row-title">Top Hindi Dubbed</h3>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => scrollRow('row-hindi', 'left')} className="p-1.5 rounded-full bg-white/5 hover:bg-cyan-500/20 text-gray-300 hover:text-cyan-400 border border-white/10 transition-all cursor-pointer" aria-label="Scroll left">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m15 18-6-6 6-6"/></svg>
+                        </button>
+                        <button onClick={() => scrollRow('row-hindi', 'right')} className="p-1.5 rounded-full bg-white/5 hover:bg-cyan-500/20 text-gray-300 hover:text-cyan-400 border border-white/10 transition-all cursor-pointer" aria-label="Scroll right">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                        <button 
+                          onClick={() => openCategoryMore({ classify: 'Hindi dub' })}
+                          className="text-cyan-400 hover:text-cyan-300 font-bold text-xs sm:text-sm flex items-center gap-1 cursor-pointer transition-colors ml-1"
+                        >
+                          More <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="movie-row-scroll" id="row-hindi">
+                      {hindiMovies.map((m, idx) => (
+                        <div key={m.id || m.subjectId || idx} className="row-poster-card" onClick={() => handleMovieClick(m)}>
+                          <img src={m.cover?.url || m.coverUrl || m.cover} alt={m.title} className="row-poster-img" />
+                          <span className="row-poster-title">{m.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {bollywoodMovies.length > 0 && (
+                  <div className="movie-row-section">
+                    <div className="movie-row-header flex justify-between items-center">
+                      <h3 className="movie-row-title">Bollywood Blockbusters</h3>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => scrollRow('row-bolly', 'left')} className="p-1.5 rounded-full bg-white/5 hover:bg-cyan-500/20 text-gray-300 hover:text-cyan-400 border border-white/10 transition-all cursor-pointer" aria-label="Scroll left">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m15 18-6-6 6-6"/></svg>
+                        </button>
+                        <button onClick={() => scrollRow('row-bolly', 'right')} className="p-1.5 rounded-full bg-white/5 hover:bg-cyan-500/20 text-gray-300 hover:text-cyan-400 border border-white/10 transition-all cursor-pointer" aria-label="Scroll right">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                        <button 
+                          onClick={() => openCategoryMore({ country: 'India' })}
+                          className="text-cyan-400 hover:text-cyan-300 font-bold text-xs sm:text-sm flex items-center gap-1 cursor-pointer transition-colors ml-1"
+                        >
+                          More <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="movie-row-scroll" id="row-bolly">
+                      {bollywoodMovies.map((m, idx) => (
+                        <div key={m.id || m.subjectId || idx} className="row-poster-card" onClick={() => handleMovieClick(m)}>
+                          <img src={m.cover?.url || m.coverUrl || m.cover} alt={m.title} className="row-poster-img" />
+                          <span className="row-poster-title">{m.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {hollywoodMovies.length > 0 && (
+                  <div className="movie-row-section">
+                    <div className="movie-row-header flex justify-between items-center">
+                      <h3 className="movie-row-title">Hollywood Hits</h3>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => scrollRow('row-holly', 'left')} className="p-1.5 rounded-full bg-white/5 hover:bg-cyan-500/20 text-gray-300 hover:text-cyan-400 border border-white/10 transition-all cursor-pointer" aria-label="Scroll left">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m15 18-6-6 6-6"/></svg>
+                        </button>
+                        <button onClick={() => scrollRow('row-holly', 'right')} className="p-1.5 rounded-full bg-white/5 hover:bg-cyan-500/20 text-gray-300 hover:text-cyan-400 border border-white/10 transition-all cursor-pointer" aria-label="Scroll right">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                        <button 
+                          onClick={() => openCategoryMore({ country: 'United States' })}
+                          className="text-cyan-400 hover:text-cyan-300 font-bold text-xs sm:text-sm flex items-center gap-1 cursor-pointer transition-colors ml-1"
+                        >
+                          More <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="movie-row-scroll" id="row-holly">
+                      {hollywoodMovies.map((m, idx) => (
+                        <div key={m.id || m.subjectId || idx} className="row-poster-card" onClick={() => handleMovieClick(m)}>
+                          <img src={m.cover?.url || m.coverUrl || m.cover} alt={m.title} className="row-poster-img" />
+                          <span className="row-poster-title">{m.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {actionMovies.length > 0 && (
+                  <div className="movie-row-section">
+                    <div className="movie-row-header flex justify-between items-center">
+                      <h3 className="movie-row-title">Action & Adventure</h3>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => scrollRow('row-action', 'left')} className="p-1.5 rounded-full bg-white/5 hover:bg-cyan-500/20 text-gray-300 hover:text-cyan-400 border border-white/10 transition-all cursor-pointer" aria-label="Scroll left">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m15 18-6-6 6-6"/></svg>
+                        </button>
+                        <button onClick={() => scrollRow('row-action', 'right')} className="p-1.5 rounded-full bg-white/5 hover:bg-cyan-500/20 text-gray-300 hover:text-cyan-400 border border-white/10 transition-all cursor-pointer" aria-label="Scroll right">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                        <button 
+                          onClick={() => openCategoryMore({ genre: 'Action' })}
+                          className="text-cyan-400 hover:text-cyan-300 font-bold text-xs sm:text-sm flex items-center gap-1 cursor-pointer transition-colors ml-1"
+                        >
+                          More <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="movie-row-scroll" id="row-action">
+                      {actionMovies.map((m, idx) => (
+                        <div key={m.id || m.subjectId || idx} className="row-poster-card" onClick={() => handleMovieClick(m)}>
+                          <img src={m.cover?.url || m.coverUrl || m.cover} alt={m.title} className="row-poster-img" />
+                          <span className="row-poster-title">{m.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {thrillerMovies.length > 0 && (
+                  <div className="movie-row-section">
+                    <div className="movie-row-header flex justify-between items-center">
+                      <h3 className="movie-row-title">Thriller & Suspense</h3>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => scrollRow('row-thriller', 'left')} className="p-1.5 rounded-full bg-white/5 hover:bg-cyan-500/20 text-gray-300 hover:text-cyan-400 border border-white/10 transition-all cursor-pointer" aria-label="Scroll left">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m15 18-6-6 6-6"/></svg>
+                        </button>
+                        <button onClick={() => scrollRow('row-thriller', 'right')} className="p-1.5 rounded-full bg-white/5 hover:bg-cyan-500/20 text-gray-300 hover:text-cyan-400 border border-white/10 transition-all cursor-pointer" aria-label="Scroll right">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                        <button 
+                          onClick={() => openCategoryMore({ genre: 'Thriller' })}
+                          className="text-cyan-400 hover:text-cyan-300 font-bold text-xs sm:text-sm flex items-center gap-1 cursor-pointer transition-colors ml-1"
+                        >
+                          More <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="movie-row-scroll" id="row-thriller">
+                      {thrillerMovies.map((m, idx) => (
+                        <div key={m.id || m.subjectId || idx} className="row-poster-card" onClick={() => handleMovieClick(m)}>
+                          <img src={m.cover?.url || m.coverUrl || m.cover} alt={m.title} className="row-poster-img" />
+                          <span className="row-poster-title">{m.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {horrorMovies.length > 0 && (
+                  <div className="movie-row-section">
+                    <div className="movie-row-header flex justify-between items-center">
+                      <h3 className="movie-row-title">Horror Movies</h3>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => scrollRow('row-horror', 'left')} className="p-1.5 rounded-full bg-white/5 hover:bg-cyan-500/20 text-gray-300 hover:text-cyan-400 border border-white/10 transition-all cursor-pointer" aria-label="Scroll left">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m15 18-6-6 6-6"/></svg>
+                        </button>
+                        <button onClick={() => scrollRow('row-horror', 'right')} className="p-1.5 rounded-full bg-white/5 hover:bg-cyan-500/20 text-gray-300 hover:text-cyan-400 border border-white/10 transition-all cursor-pointer" aria-label="Scroll right">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                        <button 
+                          onClick={() => openCategoryMore({ genre: 'Horror' })}
+                          className="text-cyan-400 hover:text-cyan-300 font-bold text-xs sm:text-sm flex items-center gap-1 cursor-pointer transition-colors ml-1"
+                        >
+                          More <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="movie-row-scroll" id="row-horror">
+                      {horrorMovies.map((m, idx) => (
+                        <div key={m.id || m.subjectId || idx} className="row-poster-card" onClick={() => handleMovieClick(m)}>
+                          <img src={m.cover?.url || m.coverUrl || m.cover} alt={m.title} className="row-poster-img" />
+                          <span className="row-poster-title">{m.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <section className="page-heading">
+              <p className="section-kicker">Now playing around you</p>
+              <h2>
+                {searchQuery 
+                  ? `Search Results: ${searchQuery}` 
+                  : activeTab === 'home' ? 'All Recent Releases'
+                  : activeTab === 'movies' ? 'Movies'
+                  : activeTab === 'tvshows' ? 'TV Shows'
+                  : activeTab === 'anime' ? 'Anime'
+                  : 'Trending Now'
+                }
+              </h2>
+            </section>
 
         {filterOptions.length > 0 && activeTab !== 'home' && (
           <div className="filter-strip">
@@ -1625,7 +2493,7 @@ function App() {
           </div>
         )}
         
-        {loadingMore && (
+        {loadingMore && !selectedMovieId && (
           <div className="py-8 text-center text-gray-400">
             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
               <span className="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Loading...</span>
@@ -1635,196 +2503,10 @@ function App() {
         )}
         
         {/* Invisible target for IntersectionObserver infinite scrolling */}
-        <div ref={loaderRef} style={{ height: '20px', width: '100%' }} />
-      </main>
-
-      {/* Details Modal */}
-      {selectedMovieId && (
-        <div className="details-backdrop">
-          <div className="details-shell">
-            <button 
-              onClick={() => setSelectedMovieId(null)}
-              className="details-close"
-              aria-label="Close details"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-            
-            {detailsLoading ? (
-              <div className="details-loading">
-                <div className="loading-spinner"></div>
-                <p>Loading details...</p>
-              </div>
-            ) : movieDetails && (
-              <div className="details-content">
-                {/* Poster Sidebar */}
-                <div className="details-sidebar">
-                  <img src={movieDetails.cover?.url || movieDetails.cover} alt={movieDetails.title} className="details-poster" />
-                </div>
-
-                {/* Main Content Area */}
-                <div className="details-main">
-                  <h2 className="details-title">{movieDetails.title}</h2>
-                  <div className="details-facts">
-                    <span>{movieDetails.year || movieDetails.releaseDate?.substring(0,4)}</span>
-                    {movieDetails.imdbRatingValue && <span>Rating {movieDetails.imdbRatingValue}</span>}
-                  </div>
-
-                  <div className="detail-tabs">
-                    <button onClick={() => setActiveDetailTab('episodes')} className={activeDetailTab === 'episodes' ? 'active' : ''}>Episodes</button>
-                    <button onClick={() => setActiveDetailTab('details')} className={activeDetailTab === 'details' ? 'active' : ''}>Details</button>
-                    <button onClick={() => setActiveDetailTab('more')} className={activeDetailTab === 'more' ? 'active' : ''}>More Like This</button>
-                  </div>
-
-                  {activeDetailTab === 'details' && (
-                    <div className="details-tab-panel">
-                      <p className="details-copy">{movieDetails.description || 'No description available.'}</p>
-                      <div className="details-info-grid">
-                        <div>
-                          <span>Title</span>
-                          <p>{movieDetails.title}</p>
-                        </div>
-                        <div>
-                          <span>Year</span>
-                          <p>{movieDetails.year || movieDetails.releaseDate?.substring(0,4) || 'Unknown'}</p>
-                        </div>
-                        <div>
-                          <span>Rating</span>
-                          <p>{movieDetails.imdbRatingValue || movieDetails.rate || 'N/A'}</p>
-                        </div>
-                        {movieDetails.genre && (
-                          <div>
-                            <span>Genres</span>
-                            <p>{movieDetails.genre}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {activeDetailTab === 'more' && (
-                    <div className="more-like-list">
-                      {moreLikeThis.length > 0 ? moreLikeThis.map((movie: any) => (
-                        <button key={movie.id || movie.subjectId} onClick={() => handleMovieClick(movie)} className="more-like-card">
-                          <img src={movie.cover?.url || movie.coverUrl || movie.cover} alt={movie.title} />
-                          <span>
-                            <strong>{movie.title}</strong>
-                            <small>{movie.releaseDate?.substring(0, 4) || movie.year || 'Unknown'} {movie.genre ? `- ${movie.genre}` : ''}</small>
-                          </span>
-                        </button>
-                      )) : (
-                        <div className="episode-empty">No similar items in the current filter.</div>
-                      )}
-                    </div>
-                  )}
-
-                  {activeDetailTab === 'episodes' && ((!seasonInfo || !seasonInfo.seasons || seasonInfo.seasons.length === 0) ? (
-                    <div className="details-actions">
-                      <button 
-                        onClick={() => handlePlay('0', '0')}
-                        className="hero-play-button"
-                        disabled={isFetchingPlay}
-                      >
-                        <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4l12 6-12 6z"/></svg> Play
-                      </button>
-                      <button
-                        onClick={() => openPlaybackOptions('0', '0')}
-                        className="details-secondary-button"
-                        disabled={isFetchingPlay}
-                      >
-                        VLC / Quality
-                      </button>
-                      {movieDownloadLinks.length > 0 ? (
-                        <div className="flex flex-col gap-2">
-                          {movieDownloadLinks.map((link, idx) => (
-                            <a
-                              key={idx}
-                              href={link.url}
-                              download={link.filename}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="details-download-button text-center w-full block"
-                            >
-                              Download {link.label}
-                            </a>
-                          ))}
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => openPlaybackOptions('0', '0')}
-                          className="details-download-button"
-                          disabled={isFetchingPlay}
-                        >
-                          Find Downloads
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="episode-section">
-                      <h3>Seasons</h3>
-                      <div className="season-tabs">
-                        {seasonInfo.seasons.map((s: any) => (
-                          <button
-                            key={s.se}
-                            onClick={() => handleSeasonChange(s.se)}
-                            className={`season-button ${selectedSeason === s.se ? 'active' : ''}`}
-                          >
-                            Season {s.se}
-                          </button>
-                        ))}
-                      </div>
-
-                      <h3>Episodes</h3>
-                      <div className="episode-list">
-                        {episodeList.length === 0 ? (
-                          <div className="episode-empty">Loading episodes...</div>
-                        ) : (
-                          episodeList.map((ep: any) => (
-                            <div key={ep.episode} className="episode-card">
-                              <div className="episode-info">
-                                <div className="episode-number">
-                                  {ep.ep}
-                                </div>
-                                <div>
-                                  <h4>{ep.title || `Episode ${ep.ep}`}</h4>
-                                  {ep.size && <p>Size: {(parseInt(ep.size) / (1024*1024)).toFixed(1)} MB</p>}
-                                </div>
-                              </div>
-                              <div className="episode-actions">
-                                <button 
-                                  onClick={() => handlePlay(String(selectedSeason), String(ep.ep))}
-                                  className="episode-play-button"
-                                  disabled={isFetchingPlay}
-                                >
-                                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4l12 6-12 6z"/></svg> Play
-                                </button>
-                                <button
-                                  onClick={() => openPlaybackOptions(String(selectedSeason), String(ep.ep))}
-                                  className="episode-option-button"
-                                  disabled={isFetchingPlay}
-                                >
-                                  VLC
-                                </button>
-                                <button
-                                  onClick={() => openPlaybackOptions(String(selectedSeason), String(ep.ep))}
-                                  className="episode-download-button"
-                                  disabled={isFetchingPlay}
-                                >
-                                  Download
-                                </button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+        {!selectedMovieId && <div ref={loaderRef} style={{ height: '20px', width: '100%' }} />}
           </div>
-        </div>
-      )}
+        )}
+      </main>
       
       {/* Edit Profile Modal */}
       {isEditProfileModalOpen && account && (
@@ -1986,6 +2668,273 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Backdrop to close settings dropdown on any screen touch/click */}
+      {isAccountMenuOpen && (
+        <div 
+          className="fixed inset-0 z-[990] bg-transparent cursor-default" 
+          onClick={() => setIsAccountMenuOpen(false)}
+        />
+      )}
+      
+      {/* Account Settings Dropdown Overlay */}
+      {isAccountMenuOpen && account && (
+        <div className="account-dropdown z-[1000]">
+          <div className="account-dropdown-header">
+            <div className="profile-chip large" style={{ backgroundImage: `url(${account.avatar})`, backgroundSize: 'cover' }}></div>
+            <div className="account-info">
+              <span className="account-name">{account.username}</span>
+              <span className="account-email">{account.email}</span>
+              {account.tier === 'premium' ? (
+                <span className="account-badge premium">⭐ Premium Member</span>
+              ) : (
+                <span className="account-badge trial">✨ Free Trial ({Math.ceil((new Date(account.trialEndDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24))} days left)</span>
+              )}
+            </div>
+          </div>
+          {account.tier !== 'premium' && (
+            <button className="upgrade-premium-btn" onClick={() => { setIsAccountMenuOpen(false); setIsPremiumModalOpen(true); }}>
+              Upgrade to Premium
+            </button>
+          )}
+          <div className="account-dropdown-divider"></div>
+          <ul className="account-menu-list">
+            <li onClick={() => { setIsAccountMenuOpen(false); setEditUsername(account.username); setIsEditProfileModalOpen(true); }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              Edit Profile
+            </li>
+            <li onClick={() => { setIsAccountMenuOpen(false); setIsWatchHistoryOpen(true); }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              Watch History ({watchHistory.length})
+            </li>
+            <li onClick={() => { setIsAccountMenuOpen(false); setIsDownloadsModalOpen(true); }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Downloads & Offline
+            </li>
+            <li onClick={() => { setIsAccountMenuOpen(false); setIsPreferencesModalOpen(true); }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+              Preferences
+            </li>
+          </ul>
+          <div className="account-dropdown-divider"></div>
+          <ul className="account-menu-list">
+            <li className="logout" onClick={() => { localStorage.removeItem('popcorn_account'); window.location.reload(); }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              Log Out
+            </li>
+          </ul>
+        </div>
+      )}
+
+      {/* 🕒 Watch History Modal */}
+      {isWatchHistoryOpen && (
+        <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#12141a] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-white/10">
+              <h3 className="text-xl font-extrabold text-white flex items-center gap-2">
+                <span>🕒</span> Watch History
+              </h3>
+              <button onClick={() => setIsWatchHistoryOpen(false)} className="text-gray-400 hover:text-white p-1">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {watchHistory.length === 0 ? (
+                <div className="text-center py-12 text-gray-400">
+                  <p className="text-3xl mb-2">🎬</p>
+                  <p className="font-semibold text-white">No watch history yet</p>
+                  <p className="text-xs text-gray-400 mt-1">Movies you click or play will appear here for 1-tap resumption.</p>
+                </div>
+              ) : (
+                watchHistory.map((item, idx) => (
+                  <div key={item.id || idx} className="flex items-center justify-between bg-white/5 hover:bg-white/10 p-3 rounded-xl border border-white/5 transition-all">
+                    <div className="flex items-center gap-3 cursor-pointer" onClick={() => { setIsWatchHistoryOpen(false); loadMovieDetails(item.id); }}>
+                      {item.cover ? (
+                        <img src={item.cover} alt={item.title} className="w-12 h-16 object-cover rounded-lg flex-shrink-0" />
+                      ) : (
+                        <div className="w-12 h-16 bg-gray-800 rounded-lg flex items-center justify-center text-xs">🍿</div>
+                      )}
+                      <div>
+                        <h4 className="text-sm font-bold text-white line-clamp-1">{item.title}</h4>
+                        <span className="text-[11px] text-cyan-400">{item.watchedAt}</span>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => { setIsWatchHistoryOpen(false); loadMovieDetails(item.id); }}
+                      className="px-3 py-1.5 bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 rounded-lg text-xs font-bold transition-colors"
+                    >
+                      Resume ▶
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {watchHistory.length > 0 && (
+              <div className="mt-4 pt-3 border-t border-white/10 flex justify-end">
+                <button 
+                  onClick={() => { setWatchHistory([]); localStorage.removeItem('popcorn_watch_history'); }}
+                  className="text-xs font-bold text-red-400 hover:text-red-300"
+                >
+                  Clear Watch History
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 📥 Downloads & Offline Media Modal */}
+      {isDownloadsModalOpen && (
+        <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#12141a] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-white/10">
+              <h3 className="text-xl font-extrabold text-white flex items-center gap-2">
+                <span>📥</span> Downloads & Offline Media
+              </h3>
+              <button onClick={() => setIsDownloadsModalOpen(false)} className="text-gray-400 hover:text-white p-1">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="bg-cyan-950/40 border border-cyan-500/30 p-3 rounded-xl flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-cyan-300 uppercase tracking-wider">Offline Cache Engine</h4>
+                  <p className="text-xs text-gray-300">Fast 0-second instant loading enabled</p>
+                </div>
+                <span className="px-2 py-1 bg-cyan-400/20 text-cyan-400 font-extrabold text-xs rounded">Active</span>
+              </div>
+
+              <div className="text-center py-8 text-gray-400">
+                <p className="text-3xl mb-2">⚡</p>
+                <p className="font-semibold text-white">Direct Downloads Enabled</p>
+                <p className="text-xs text-gray-400 mt-1 max-w-xs mx-auto">
+                  Click on any movie details page to access direct 1080p, 720p, & 480p download links!
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ⚙️ Preferences Modal */}
+      {isPreferencesModalOpen && (
+        <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#12141a] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <div className="flex justify-between items-center mb-5 pb-3 border-b border-white/10">
+              <h3 className="text-xl font-extrabold text-white flex items-center gap-2">
+                <span>⚙️</span> App Preferences
+              </h3>
+              <button onClick={() => setIsPreferencesModalOpen(false)} className="text-gray-400 hover:text-white p-1">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <div className="space-y-5">
+              {/* Preferred Quality */}
+              <div>
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-2">Default Video Quality</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['1080p HD', '720p SD', 'Auto'].map(q => (
+                    <button
+                      key={q}
+                      onClick={() => {
+                        const updated = { ...userPreferences, quality: q };
+                        setUserPreferences(updated);
+                        localStorage.setItem('popcorn_user_preferences', JSON.stringify(updated));
+                      }}
+                      className={`py-2 text-xs font-bold rounded-xl border transition-all ${userPreferences.quality === q ? 'bg-cyan-500 text-black border-cyan-400 shadow-[0_0_12px_rgba(0,229,255,0.4)]' : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'}`}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Preferred Audio */}
+              <div>
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-2">Default Dub Audio</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['Hindi', 'English', 'Original'].map(lang => (
+                    <button
+                      key={lang}
+                      onClick={() => {
+                        const updated = { ...userPreferences, audioLang: lang };
+                        setUserPreferences(updated);
+                        localStorage.setItem('popcorn_user_preferences', JSON.stringify(updated));
+                      }}
+                      className={`py-2 text-xs font-bold rounded-xl border transition-all ${userPreferences.audioLang === lang ? 'bg-cyan-500 text-black border-cyan-400 shadow-[0_0_12px_rgba(0,229,255,0.4)]' : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'}`}
+                    >
+                      {lang}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Auto Play Next */}
+              <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                <div>
+                  <h4 className="text-sm font-bold text-white">Auto-Play Next Episode</h4>
+                  <p className="text-xs text-gray-400">Play next episode automatically when finished</p>
+                </div>
+                <button
+                  onClick={() => {
+                    const updated = { ...userPreferences, autoPlayNext: !userPreferences.autoPlayNext };
+                    setUserPreferences(updated);
+                    localStorage.setItem('popcorn_user_preferences', JSON.stringify(updated));
+                  }}
+                  className={`w-12 h-6 rounded-full transition-colors relative p-1 ${userPreferences.autoPlayNext ? 'bg-cyan-500' : 'bg-gray-700'}`}
+                >
+                  <div className={`w-4 h-4 rounded-full bg-white transition-transform ${userPreferences.autoPlayNext ? 'translate-x-6' : 'translate-x-0'}`} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📱 MOBILE BOTTOM NAVIGATION BAR */}
+      {!playingVideo && (
+        <nav className="mobile-bottom-nav">
+          <button 
+            onClick={() => handleTabClick('home')} 
+            className={`mobile-nav-item ${activeTab === 'home' && !searchQuery && !selectedMovieId ? 'active' : ''}`}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            <span>Home</span>
+          </button>
+          <button 
+            onClick={() => handleTabClick('movies')} 
+            className={`mobile-nav-item ${activeTab === 'movies' && !searchQuery && !selectedMovieId ? 'active' : ''}`}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18M17 3v18M3 7.5h18M3 12h18M3 16.5h18"/></svg>
+            <span>Movies</span>
+          </button>
+          <button 
+            onClick={() => handleTabClick('tvshows')} 
+            className={`mobile-nav-item ${activeTab === 'tvshows' && !searchQuery && !selectedMovieId ? 'active' : ''}`}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect width="20" height="15" x="2" y="7" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg>
+            <span>TV Shows</span>
+          </button>
+          <button 
+            onClick={() => handleTabClick('anime')} 
+            className={`mobile-nav-item ${activeTab === 'anime' && !searchQuery && !selectedMovieId ? 'active' : ''}`}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <span>Anime</span>
+          </button>
+          <button 
+            onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)} 
+            className="mobile-nav-item"
+          >
+            <div className="w-5 h-5 rounded-full bg-cover bg-center border border-cyan-400" style={account ? { backgroundImage: `url(${account.avatar})` } : {}}></div>
+            <span>Account</span>
+          </button>
+        </nav>
       )}
     </div>
   )

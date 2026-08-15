@@ -22,7 +22,9 @@ export async function getPlayInfo(subjectId: string, se: string = '0', ep: strin
     throw new Error(`Backend API error: ${response.status}`);
   }
 
-  return response.json();
+  const data = await response.json();
+  if (Array.isArray(data)) return data;
+  return data.streams || [];
 }
 
 export async function searchMovies(keyword: string, page: number = 1, perPage: number = 20) {

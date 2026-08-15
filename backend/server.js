@@ -239,11 +239,18 @@ const server = http.createServer(async (req, res) => {
       }
 
       const payload = await movieBoxRequest('GET', `/wefeed-mobile-bff/subject-api/play-info?subjectId=${encodeURIComponent(subjectId)}&se=${encodeURIComponent(se)}&ep=${encodeURIComponent(ep)}`);
-      const streams = payload.data?.streams || [];
-      json(res, 200, streams.map((stream) => ({
+      const data = payload.data || {};
+      const streams = (data.streams || []).map((stream) => ({
         ...stream,
-        title: stream.title || payload.data?.title || '',
-      })));
+        title: stream.title || data.title || '',
+      }));
+      json(res, 200, {
+        streams,
+        subtitles: data.subtitles || data.captionList || data.subTitleList || [],
+        captions: data.captions || [],
+        audioList: data.audioList || [],
+        title: data.title || '',
+      });
       return;
     }
 
