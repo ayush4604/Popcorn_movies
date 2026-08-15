@@ -559,6 +559,7 @@ function VideoPlayer({
   const [currentDashText, setCurrentDashText] = useState<number>(-1);
 
   const [activeMenu, setActiveMenu] = useState<'settings' | 'cc' | null>(null);
+  const [seekRipple, setSeekRipple] = useState<{ type: 'rewind' | 'forward'; id: number } | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
@@ -790,6 +791,27 @@ function VideoPlayer({
     videoRef.current.currentTime = Math.max(0, Math.min((videoRef.current.duration || 0), videoRef.current.currentTime + seconds));
   };
 
+  const handleStageClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    resetHideTimer();
+    if (e.detail === 2) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const width = rect.width;
+
+      if (clickX < width * 0.4) {
+        seekBy(-10);
+        setSeekRipple({ type: 'rewind', id: Date.now() });
+        setTimeout(() => setSeekRipple(null), 600);
+      } else if (clickX > width * 0.6) {
+        seekBy(10);
+        setSeekRipple({ type: 'forward', id: Date.now() });
+        setTimeout(() => setSeekRipple(null), 600);
+      } else {
+        togglePlay();
+      }
+    }
+  };
+
   // Switch HLS audio track directly
   const selectHlsAudioTrack = (idx: number) => {
     setCurrentHlsAudio(idx);
@@ -878,19 +900,29 @@ function VideoPlayer({
 
   return (
     <div 
-      className="player-shell fixed inset-0 z-[99990] bg-black flex flex-col justify-center items-center overflow-hidden select-none" 
+      className="player-shell fixed inset-0 z-[99990] bg-black flex flex-col justify-center items-center overflow-hidden select-none cursor-pointer" 
       ref={containerRef}
       onMouseMove={resetHideTimer}
       onTouchStart={resetHideTimer}
-      onClick={resetHideTimer}
+      onClick={handleStageClick}
     >
       {/* 📺 Pure Fullscreen Video Element (No Browser Native Controls!) */}
       <video 
         ref={videoRef} 
-        className="w-full h-full max-h-screen object-contain cursor-pointer"
-        onDoubleClick={togglePlay}
+        className="w-full h-full max-h-screen object-contain"
         playsInline
       />
+
+      {/* ⚡ Double Tap Ripple Feedback Animations */}
+      {seekRipple && (
+        <div className={`absolute z-[99998] pointer-events-none flex items-center justify-center inset-y-0 ${seekRipple.type === 'rewind' ? 'left-0 w-1/2 bg-gradient-to-r from-cyan-500/20 to-transparent' : 'right-0 w-1/2 bg-gradient-to-l from-cyan-500/20 to-transparent'}`}>
+          <div className="flex flex-col items-center justify-center p-5 sm:p-7 rounded-full bg-black/70 border border-cyan-400/50 backdrop-blur-md shadow-[0_0_30px_rgba(0,229,255,0.6)] animate-pulse">
+            <span className="text-2xl sm:text-3xl text-cyan-400 font-black tracking-wider">
+              {seekRipple.type === 'rewind' ? '↶ 10s' : '10s ↷'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* 🎬 Overlay Container (Smooth Fade-In / Fade-Out) */}
       <div className={`absolute inset-0 z-[99995] flex flex-col justify-between p-4 sm:p-8 transition-opacity duration-300 pointer-events-none ${showOverlay || activeMenu ? 'opacity-100' : 'opacity-0'}`}>
