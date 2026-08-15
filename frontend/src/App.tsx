@@ -174,20 +174,31 @@ function toVlcProxyUrl(url: string, authParams: string): string {
 
 function isHevcStream(stream: any): boolean {
   const codec = String(stream.codecName || stream.codec || '').toLowerCase();
-  if (codec) {
-    return codec.includes('hevc') || codec.includes('h265') || codec.includes('hev1');
-  }
-
+  const url = String(stream.url || '').toLowerCase();
   const format = String(stream.format || '').toLowerCase();
-  return format.includes('hevc') || format.includes('h265') || format.includes('hev1');
+
+  return codec.includes('hevc') || codec.includes('h265') || codec.includes('hev1') ||
+         format.includes('hevc') || format.includes('h265') || format.includes('hev1') ||
+         url.includes('h265') || url.includes('hevc');
 }
 
 function getStreamScore(stream: any): number {
   const format = String(stream.format || '').toLowerCase();
+  const codec = String(stream.codecName || stream.codec || '').toLowerCase();
   const resolution = parseInt(String(stream.resolutions || '').split(',')[0], 10) || 0;
   const isMp4 = format === 'mp4' || stream.url?.includes('.mp4');
+  const isH264 = codec === 'h264' || codec.includes('h264') || codec.includes('avc');
+  const isHevc = isHevcStream(stream);
 
-  return (isMp4 ? 10000 : 0) + resolution;
+  if (isHevc) {
+    return -50000 + resolution; // HEVC video fails to render on browser HTML5 video element
+  }
+
+  if (isH264 && isMp4) {
+    return 200000 + resolution; // H.264 MP4 works 100% on all browsers
+  }
+
+  return (isMp4 ? 100000 : 10000) + resolution;
 }
 
 function getStreamLabel(stream: any, index: number): string {
@@ -1690,14 +1701,12 @@ function App() {
 
     setIsFetchingPlay(true);
     try {
-      const res = await getPlayInfo(selectedMovieId, se, ep);
-      const streams = Array.isArray(res) ? res : (res?.streams || []);
-      if (!streams || streams.length === 0) {
+      const sortedStreams = await fetchMergedStreams(selectedMovieId, se, ep);
+      if (!sortedStreams || sortedStreams.length === 0) {
         alert('No streams found for this movie/episode.');
         return;
       }
 
-      const sortedStreams = [...streams].sort((a: any, b: any) => getStreamScore(b) - getStreamScore(a));
       const bestStream = sortedStreams[0];
       const authParams = getAuthParams(bestStream);
       const browserStream = {
@@ -1727,6 +1736,46 @@ function App() {
     }
   }
 
+  const fetchMergedStreams = async (subjectId: string, se: string, ep: string) => {
+    let playStreams: any[] = [];
+    try {
+      const res = await getPlayInfo(subjectId, se, ep);
+      playStreams = Array.isArray(res) ? res : (res?.streams || []);
+    } catch (e) {
+      console.warn('getPlayInfo failed:', e);
+    }
+
+    let resourceStreams: any[] = [];
+    try {
+      const resources = await getResourceLinks(subjectId, se, 1, '0', ep, ep);
+      const resList = resources.list || [];
+      resourceStreams = resList.map((item: any) => ({
+        format: 'MP4',
+        id: item.resourceId || String(Date.now()),
+        url: item.resourceLink,
+        resolutions: `${item.resolution || 720}p`,
+        size: item.size || '0',
+        duration: item.duration || 0,
+        codecName: item.codecName || 'h264',
+        signCookie: '',
+        idType: '',
+        title: item.title || `H.264 Direct MP4 (${item.resolution || 720}p)`
+      }));
+    } catch (e) {
+      console.warn('getResourceLinks fallback failed:', e);
+    }
+
+    const combined = [...resourceStreams, ...playStreams];
+    const seen = new Set();
+    const unique = combined.filter((s: any) => {
+      if (!s.url || seen.has(s.url)) return false;
+      seen.add(s.url);
+      return true;
+    });
+
+    return unique.sort((a: any, b: any) => getStreamScore(b) - getStreamScore(a));
+  };
+
   const handlePlay = async (se: string = '0', ep: string = '0') => {
     if (!selectedMovieId || isFetchingPlay || playingVideo) return;
 
@@ -1737,12 +1786,10 @@ function App() {
 
     setIsFetchingPlay(true);
     try {
-      const res = await getPlayInfo(selectedMovieId, se, ep);
-      const streams = Array.isArray(res) ? res : (res?.streams || []);
+      const sortedStreams = await fetchMergedStreams(selectedMovieId, se, ep);
 
-      console.log('All available streams:', streams);
-      if (streams && streams.length > 0) {
-        const sortedStreams = [...streams].sort((a: any, b: any) => getStreamScore(b) - getStreamScore(a));
+      console.log('All merged streams (sorted):', sortedStreams);
+      if (sortedStreams && sortedStreams.length > 0) {
         const bestStream = sortedStreams[0];
         const authParams = getAuthParams(bestStream);
         
