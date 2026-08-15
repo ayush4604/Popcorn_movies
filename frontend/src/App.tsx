@@ -762,8 +762,11 @@ function VideoPlayer({
         });
         hlsPlayer.loadSource(playbackUrl);
         hlsPlayer.attachMedia(video);
+        video.play().catch(() => {});
       } else {
         video.src = playbackUrl;
+        video.autoplay = true;
+        video.play().catch(() => {});
       }
       
       return () => {
