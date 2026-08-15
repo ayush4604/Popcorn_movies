@@ -2431,19 +2431,21 @@ function App() {
               </div>
             )}
 
-            <section className="page-heading">
-              <p className="section-kicker">Now playing around you</p>
-              <h2>
-                {searchQuery 
-                  ? `Search Results: ${searchQuery}` 
-                  : activeTab === 'home' ? 'All Recent Releases'
-                  : activeTab === 'movies' ? 'Movies'
-                  : activeTab === 'tvshows' ? 'TV Shows'
-                  : activeTab === 'anime' ? 'Anime'
-                  : 'Trending Now'
-                }
-              </h2>
-            </section>
+            {activeTab !== 'livetv' && (
+              <>
+                <section className="page-heading">
+                  <p className="section-kicker">Now playing around you</p>
+                  <h2>
+                    {searchQuery 
+                      ? `Search Results: ${searchQuery}` 
+                      : activeTab === 'home' ? 'All Recent Releases'
+                      : activeTab === 'movies' ? 'Movies'
+                      : activeTab === 'tvshows' ? 'TV Shows'
+                      : activeTab === 'anime' ? 'Anime'
+                      : 'Trending Now'
+                    }
+                  </h2>
+                </section>
 
         {filterOptions.length > 0 && activeTab !== 'home' && (
           <div className="filter-strip">
@@ -2637,6 +2639,8 @@ function App() {
         
         {/* Invisible target for IntersectionObserver infinite scrolling */}
         {!selectedMovieId && <div ref={loaderRef} style={{ height: '20px', width: '100%' }} />}
+              </>
+            )}
           </div>
         )}
       </main>

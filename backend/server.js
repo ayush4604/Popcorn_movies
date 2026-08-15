@@ -162,13 +162,27 @@ function proxyMediaRequest(req, res, routePrefix, authParams = '') {
   const finalQuery = queryParams.toString();
   const path = `/${pathParts.join('/')}${finalQuery ? `?${finalQuery}` : ''}`;
 
-  if (!host || pathParts.length === 0 || !/^[a-z0-9.-]+$/i.test(host)) {
+  if (!host || pathParts.length === 0 || !/^[a-z0-9.-]+(:[0-9]+)?$/i.test(host)) {
     res.writeHead(400, { 'access-control-allow-origin': '*' });
     res.end('Invalid CDN URL');
     return;
   }
 
-  const headers = { 'user-agent': host.includes('macdn') ? 'Mozilla/5.0 (Linux; Android 14; V2229A Build/UQ1A.240205.06031531; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.6367.82 Safari/537.36' : 'Dalvik/2.1.0 (Linux; U; Android 14; V2229A Build/UQ1A.240205.06031531)' }; if (host.includes('macdn')) { headers.referer = 'https://sportsnow.top/'; headers['x-requested-with'] = 'com.community.mbox.in'; }
+  const [hostname, portStr] = host.split(':');
+  const isHttps = !portStr || portStr === '443';
+  const port = portStr ? parseInt(portStr, 10) : (isHttps ? 443 : 80);
+  const reqLib = isHttps ? https : http;
+
+  const headers = { 
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'accept': '*/*',
+    'accept-language': 'en-US,en;q=0.9'
+  }; 
+  if (host.includes('macdn')) { 
+    headers['user-agent'] = 'Mozilla/5.0 (Linux; Android 14; V2229A Build/UQ1A.240205.06031531; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.6367.82 Safari/537.36';
+    headers.referer = 'https://sportsnow.top/'; 
+    headers['x-requested-with'] = 'com.community.mbox.in'; 
+  }
   if (req.headers.range) {
     headers.range = req.headers.range;
   }
@@ -176,7 +190,7 @@ function proxyMediaRequest(req, res, routePrefix, authParams = '') {
     headers.Cookie = cookieHeader;
   }
 
-  const upstream = https.request({ hostname: host, path, method: req.method, headers }, (upstreamRes) => {
+  const upstream = reqLib.request({ hostname, port, path, method: req.method, headers }, (upstreamRes) => {
     const isM3u8 = path.split('?')[0].endsWith('.m3u8');
     if (isM3u8 && allQueries && upstreamRes.statusCode === 200) {
       let body = '';
