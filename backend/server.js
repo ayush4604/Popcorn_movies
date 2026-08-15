@@ -231,34 +231,63 @@ function proxyMediaRequest(req, res, routePrefix, authParams = '') {
 
 let iptvCache = { data: null, timestamp: 0 };
 
+function parseM3uUrls(m3uText) {
+  const lines = m3uText.split('\n');
+  const map = new Map();
+  let currentId = '';
+  for (let line of lines) {
+    line = line.trim();
+    if (line.startsWith('#EXTINF:')) {
+      const match = line.match(/tvg-id="([^"]*)"/);
+      currentId = match ? match[1] : '';
+    } else if (line && !line.startsWith('#')) {
+      if (currentId) {
+        if (!map.has(currentId)) map.set(currentId, []);
+        map.get(currentId).push(line);
+        currentId = '';
+      }
+    }
+  }
+  return map;
+}
+
 async function getIptvChannels() {
   if (iptvCache.data && Date.now() - iptvCache.timestamp < 12 * 3600 * 1000) {
     return iptvCache.data;
   }
 
   try {
-    const [chanRes, streamRes] = await Promise.all([
+    const [chanRes, streamRes, m3uRes] = await Promise.all([
       fetch('https://iptv-org.github.io/api/channels.json'),
-      fetch('https://iptv-org.github.io/api/streams.json')
+      fetch('https://iptv-org.github.io/api/streams.json'),
+      fetch('https://iptv-org.github.io/iptv/countries/in.m3u').catch(() => null)
     ]);
 
     const channels = await chanRes.json();
     const streams = await streamRes.json();
+    const m3uText = m3uRes ? await m3uRes.text() : '';
+    const m3uMap = m3uText ? parseM3uUrls(m3uText) : new Map();
 
     const streamMap = new Map();
     for (const s of streams) {
       if (s.channel && s.url && !s.status) {
         if (!streamMap.has(s.channel)) {
-          streamMap.set(s.channel, s);
+          streamMap.set(s.channel, []);
         }
+        streamMap.get(s.channel).push(s.url);
       }
     }
 
     const merged = [];
     for (const c of channels) {
       if (c.is_nsfw) continue;
-      const s = streamMap.get(c.id);
-      if (!s) continue;
+      let urlList = streamMap.get(c.id) || [];
+      const m3uUrls = m3uMap.get(c.id) || [];
+      for (const mu of m3uUrls) {
+        if (!urlList.includes(mu)) urlList.push(mu);
+      }
+
+      if (urlList.length === 0) continue;
 
       merged.push({
         id: c.id,
@@ -266,9 +295,9 @@ async function getIptvChannels() {
         logo: c.logo || '',
         country: c.country || 'GLOBAL',
         categories: c.categories || [],
-        url: s.url,
-        quality: s.quality || '',
-        userAgent: s.user_agent || ''
+        url: urlList[0],
+        backupUrls: urlList.slice(1),
+        quality: ''
       });
     }
 

@@ -773,6 +773,12 @@ function VideoPlayer({
         hlsPlayer.on(Hls.Events.ERROR, (_, data) => {
           console.error('HLS Error:', data.type, data.details, data.fatal ? 'FATAL' : '');
           if (data.fatal) {
+            if (streams.length > 1 && streamIndex < streams.length - 1) {
+              const nextIndex = streamIndex + 1;
+              console.log(`[AUTO-FALLBACK] Primary stream error, switching to backup stream #${nextIndex}`);
+              onQualityChange(nextIndex);
+              return;
+            }
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
                 hlsPlayer?.startLoad();
@@ -2206,10 +2212,19 @@ function App() {
             {activeTab === 'livetv' && !searchQuery && (
               <LiveTvModule
                 onPlayChannel={(channel) => {
+                  const allUrls = [channel.url, ...(channel.backupUrls || [])];
+                  const proxiedStreams = allUrls.map((u, idx) => ({
+                    format: 'M3U8',
+                    id: `livetv-${idx}`,
+                    url: toVlcProxyUrl(u, ''),
+                    title: idx === 0 ? channel.title : `${channel.title} (Backup ${idx})`,
+                    resolutions: 'HD'
+                  }));
+
                   setPlayingVideo({
-                    url: channel.url,
+                    url: proxiedStreams[0].url,
                     authParams: '',
-                    streams: [{ format: 'M3U8', id: 'livetv', url: channel.url, title: channel.title, resolutions: 'HD' }],
+                    streams: proxiedStreams,
                     streamIndex: 0,
                     title: channel.title
                   });

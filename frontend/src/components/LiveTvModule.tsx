@@ -8,12 +8,13 @@ interface Channel {
   country: string;
   categories: string[];
   url: string;
+  backupUrls?: string[];
   quality: string;
   userAgent?: string;
 }
 
 interface LiveTvModuleProps {
-  onPlayChannel: (channel: { title: string; url: string; logo?: string }) => void;
+  onPlayChannel: (channel: { title: string; url: string; backupUrls?: string[]; logo?: string }) => void;
 }
 
 const CATEGORIES = [
@@ -185,7 +186,7 @@ export const LiveTvModule: React.FC<LiveTvModuleProps> = ({ onPlayChannel }) => 
           {channels.map((chan) => (
             <div
               key={chan.id}
-              onClick={() => onPlayChannel({ title: chan.name, url: chan.url, logo: chan.logo })}
+              onClick={() => onPlayChannel({ title: chan.name, url: chan.url, backupUrls: chan.backupUrls, logo: chan.logo })}
               className="group relative bg-white/5 hover:bg-white/10 border border-white/10 hover:border-cyan-500/50 p-4 rounded-2xl flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_8px_25px_rgba(0,229,255,0.15)] cursor-pointer overflow-hidden"
             >
               {/* Live Red Indicator Badge */}
