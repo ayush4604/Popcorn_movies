@@ -52,31 +52,40 @@ function generateSignature(method, url, body = null, accept = '', contentType = 
   return `${timestamp}|2|${hmac}`;
 }
 
-async function movieBoxRequest(method, path, bodyObject = null) {
+async function movieBoxRequest(method, path, bodyObject = null, retries = 2) {
   const body = bodyObject ? JSON.stringify(bodyObject) : null;
   const accept = 'application/json';
   const contentType = body ? 'application/json; charset=utf-8' : '';
-  const signature = generateSignature(method, path, body, accept, contentType);
 
-  const response = await fetch(`https://apii.inmoviebox.com${path}`, {
-    method,
-    headers: {
-      ...API_BASE_HEADERS,
-      accept,
-      'user-agent': 'com.community.mbox.in/50020080 (Linux; U; Android 14; en_US; V2229A; Build/UQ1A.240205.06031531; Cronet/126.0.6452.4)',
-      'x-tr-signature': signature,
-      ...(body ? { 'content-type': contentType } : {}),
-    },
-    body,
-  });
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const signature = generateSignature(method, path, body, accept, contentType);
+      const response = await fetch(`https://apii.inmoviebox.com${path}`, {
+        method,
+        headers: {
+          ...API_BASE_HEADERS,
+          accept,
+          'user-agent': 'com.community.mbox.in/50020080 (Linux; U; Android 14; en_US; V2229A; Build/UQ1A.240205.06031531; Cronet/126.0.6452.4)',
+          'x-tr-signature': signature,
+          ...(body ? { 'content-type': contentType } : {}),
+        },
+        body,
+      });
 
-  if (!response.ok) {
-    const text = await response.text();
-    console.error(`MovieBox API error ${response.status} on ${path}:`, text);
-    throw new Error(`MovieBox API error: ${response.status}`);
+      if (response.ok) {
+        return await response.json();
+      }
+
+      const text = await response.text();
+      console.warn(`MovieBox API attempt ${attempt + 1}/${retries + 1} status ${response.status} on ${path}:`, text);
+      if (attempt === retries) {
+        throw new Error(`MovieBox API error: ${response.status}`);
+      }
+    } catch (e) {
+      if (attempt === retries) throw e;
+    }
+    await new Promise(r => setTimeout(r, 300));
   }
-
-  return response.json();
 }
 
 async function tryMovieBoxRequest(method, path, bodyObject = null) {

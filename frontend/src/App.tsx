@@ -1325,36 +1325,29 @@ function App() {
 
   useEffect(() => {
     if (activeTab === 'home') {
-      const fetchList = async (promise: Promise<any>) => {
+      const fetchAndSet = async (promise: Promise<any>, setter: (items: any[]) => void) => {
         try {
           const res = await promise;
-          const items = res || [];
-          return items.filter((item: any) => {
+          const items = (res || []).filter((item: any) => {
             const hasCover = item.cover && (item.cover.url || typeof item.cover === 'string');
             return hasCover && (item.subjectType === 1 || item.subjectType === 2 || !item.subjectType);
           });
+          if (items.length > 0) setter(items);
+          return items;
         } catch (e) {
           return [];
         }
       };
 
       Promise.all([
-        fetchList(getCategoryList("0", 1, 10, { classify: 'Hindi dub' })),
-        fetchList(getCategoryList("0", 1, 20, { classify: 'Hindi dub' })),
-        fetchList(getCategoryList("0", 1, 20, { country: 'India' })),
-        fetchList(getCategoryList("0", 1, 20, { country: 'United States' })),
-        fetchList(getCategoryList("0", 1, 20, { genre: 'Action' })),
-        fetchList(getCategoryList("0", 1, 20, { genre: 'Thriller' })),
-        fetchList(getCategoryList("0", 1, 20, { genre: 'Horror' }))
+        fetchAndSet(getCategoryList("0", 1, 10, { classify: 'Hindi dub' }), setHeroMovies),
+        fetchAndSet(getCategoryList("0", 1, 20, { classify: 'Hindi dub' }), setHindiMovies),
+        fetchAndSet(getCategoryList("0", 1, 20, { country: 'India' }), setBollywoodMovies),
+        fetchAndSet(getCategoryList("0", 1, 20, { country: 'United States' }), setHollywoodMovies),
+        fetchAndSet(getCategoryList("0", 1, 20, { genre: 'Action' }), setActionMovies),
+        fetchAndSet(getCategoryList("0", 1, 20, { genre: 'Thriller' }), setThrillerMovies),
+        fetchAndSet(getCategoryList("0", 1, 20, { genre: 'Horror' }), setHorrorMovies)
       ]).then(([hero, hindi, bolly, holly, act, thrill, hor]) => {
-        if (hero.length > 0) setHeroMovies(hero);
-        if (hindi.length > 0) setHindiMovies(hindi);
-        if (bolly.length > 0) setBollywoodMovies(bolly);
-        if (holly.length > 0) setHollywoodMovies(holly);
-        if (act.length > 0) setActionMovies(act);
-        if (thrill.length > 0) setThrillerMovies(thrill);
-        if (hor.length > 0) setHorrorMovies(hor);
-
         try {
           localStorage.setItem('popcorn_cache_home_v3', JSON.stringify({
             hero: hero.length > 0 ? hero : homeCache.hero,
@@ -1910,8 +1903,15 @@ function App() {
                         </>
                       ) : (
                         <button 
-                          onClick={() => { setActiveDetailTab('episodes'); }}
+                          onClick={() => { 
+                            setActiveDetailTab('episodes');
+                            const firstEp = (episodeList && episodeList.length > 0) ? String(episodeList[0].ep) : '1';
+                            handlePlay(String(selectedSeason || 1), firstEp);
+                            const epSection = document.getElementById('episodes-section');
+                            if (epSection) epSection.scrollIntoView({ behavior: 'smooth' });
+                          }}
                           className="neon-play-btn"
+                          disabled={isFetchingPlay}
                         >
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                           Watch Episodes
@@ -1978,7 +1978,7 @@ function App() {
                       )}
                     </div>
                   ) : (
-                    <div className="space-y-6">
+                    <div className="space-y-6" id="episodes-section">
                       {/* Seasons Bar */}
                       <div>
                         <h3 className="text-xs font-extrabold text-gray-400 uppercase tracking-wider mb-2">Seasons</h3>
