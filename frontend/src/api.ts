@@ -128,3 +128,16 @@ export async function getResourceLinks(subjectId: string, se: string = '1', page
   if (!response.ok) throw new Error(`Backend API error: ${response.status}`);
   return response.json();
 }
+
+export async function getLiveTvChannels(category: string = 'top', country: string = 'ALL', search: string = '', page: number = 1, perPage: number = 40) {
+  const params = new URLSearchParams({
+    category,
+    country,
+    search,
+    page: String(page),
+    perPage: String(perPage),
+  });
+  const response = await fetchWithRetry(apiUrl(`/api/livetv/channels?${params}`));
+  if (!response.ok) throw new Error(`Backend API error: ${response.status}`);
+  return response.json();
+}

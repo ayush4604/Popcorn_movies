@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { getPlayInfo, searchMovies, getCategoryList, getFilterItems, getSubjectDetails, getSeasonInfo, getResourceLinks } from './api'
 import type { FilterState } from './api'
+import { LiveTvModule } from './components/LiveTvModule'
 // @ts-ignore
 import { MediaPlayer } from 'dashjs'
 import Hls from 'hls.js'
@@ -1239,7 +1240,7 @@ function VideoPlayer({
   );
 }
 
-type TabType = 'home' | 'movies' | 'tvshows' | 'anime';
+type TabType = 'home' | 'movies' | 'tvshows' | 'anime' | 'livetv';
 
 interface UserAccount {
   id: string;
@@ -2201,6 +2202,21 @@ function App() {
           </div>
         ) : (
           <div className="movie-list-view pb-24">
+            {/* 📺 LIVE TV STANDALONE MODULE */}
+            {activeTab === 'livetv' && !searchQuery && (
+              <LiveTvModule
+                onPlayChannel={(channel) => {
+                  setPlayingVideo({
+                    url: channel.url,
+                    authParams: '',
+                    streams: [{ format: 'M3U8', id: 'livetv', url: channel.url, title: channel.title, resolutions: 'HD' }],
+                    streamIndex: 0,
+                    title: channel.title
+                  });
+                }}
+              />
+            )}
+
             {/* 📱 MOBILE HERO SLIDER CAROUSEL */}
             {activeTab === 'home' && !searchQuery && heroMovies.length > 0 && (
               <div className="mobile-hero-slider">
@@ -3043,6 +3059,13 @@ function App() {
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
             <span>Anime</span>
+          </button>
+          <button 
+            onClick={() => handleTabClick('livetv')} 
+            className={`mobile-nav-item ${activeTab === 'livetv' && !searchQuery && !selectedMovieId ? 'active' : ''}`}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect width="20" height="15" x="2" y="7" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg>
+            <span>Live TV</span>
           </button>
           <button 
             onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)} 

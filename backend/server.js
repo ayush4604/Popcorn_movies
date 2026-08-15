@@ -215,6 +215,57 @@ function proxyMediaRequest(req, res, routePrefix, authParams = '') {
   req.pipe(upstream);
 }
 
+let iptvCache = { data: null, timestamp: 0 };
+
+async function getIptvChannels() {
+  if (iptvCache.data && Date.now() - iptvCache.timestamp < 12 * 3600 * 1000) {
+    return iptvCache.data;
+  }
+
+  try {
+    const [chanRes, streamRes] = await Promise.all([
+      fetch('https://iptv-org.github.io/api/channels.json'),
+      fetch('https://iptv-org.github.io/api/streams.json')
+    ]);
+
+    const channels = await chanRes.json();
+    const streams = await streamRes.json();
+
+    const streamMap = new Map();
+    for (const s of streams) {
+      if (s.channel && s.url && !s.status) {
+        if (!streamMap.has(s.channel)) {
+          streamMap.set(s.channel, s);
+        }
+      }
+    }
+
+    const merged = [];
+    for (const c of channels) {
+      if (c.is_nsfw) continue;
+      const s = streamMap.get(c.id);
+      if (!s) continue;
+
+      merged.push({
+        id: c.id,
+        name: c.name,
+        logo: c.logo || '',
+        country: c.country || 'GLOBAL',
+        categories: c.categories || [],
+        url: s.url,
+        quality: s.quality || '',
+        userAgent: s.user_agent || ''
+      });
+    }
+
+    iptvCache = { data: merged, timestamp: Date.now() };
+    return merged;
+  } catch (e) {
+    console.error('Failed to fetch IPTV org data:', e);
+    return iptvCache.data || [];
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'OPTIONS') {
@@ -339,6 +390,36 @@ const server = http.createServer(async (req, res) => {
       const subjectId = url.searchParams.get('subjectId');
       const payload = await movieBoxRequest('GET', `/wefeed-mobile-bff/subject-api/season-info?subjectId=${subjectId}`);
       json(res, 200, payload.data || {});
+      return;
+    }
+
+    if (url.pathname === '/api/livetv/channels') {
+      const category = (url.searchParams.get('category') || '').toLowerCase();
+      const country = (url.searchParams.get('country') || '').toUpperCase();
+      const keyword = (url.searchParams.get('keyword') || url.searchParams.get('search') || '').toLowerCase();
+      const page = Number(url.searchParams.get('page') || 1);
+      const perPage = Number(url.searchParams.get('perPage') || 40);
+
+      const all = await getIptvChannels();
+      let filtered = all;
+
+      if (category && category !== 'all' && category !== 'top') {
+        filtered = filtered.filter(c => c.categories.some(cat => cat.toLowerCase().includes(category)));
+      }
+
+      if (country && country !== 'ALL' && country !== 'GLOBAL') {
+        filtered = filtered.filter(c => c.country === country);
+      }
+
+      if (keyword) {
+        filtered = filtered.filter(c => c.name.toLowerCase().includes(keyword) || c.id.toLowerCase().includes(keyword));
+      }
+
+      const total = filtered.length;
+      const start = (page - 1) * perPage;
+      const items = filtered.slice(start, start + perPage);
+
+      json(res, 200, { items, total, page, perPage });
       return;
     }
 
