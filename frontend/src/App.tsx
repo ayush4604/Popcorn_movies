@@ -9,7 +9,7 @@ import './index.css'
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 🚧 MAINTENANCE MODE — set to `false` to restore the app
-const MAINTENANCE_MODE = false;
+const MAINTENANCE_MODE = True;
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const ROAST_LOADING_MESSAGES = [
