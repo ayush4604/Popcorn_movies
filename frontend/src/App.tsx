@@ -169,12 +169,21 @@ function toVlcProxyUrl(url: string, authParams: string): string {
       return url;
     }
 
-    // hakunaymatata.com CDNs reject requests from Hugging Face datacenter IPs:
-    // - bcdnxw: returns 426 (requires HTTP/2, Node proxy uses HTTP/1.1)
-    // - sbcdnw: returns ACCESS DENIED (IP block)
-    // Return direct URL so the browser fetches it — user IPs are not blocked.
+    // hakunaymatata.com CDNs block Hugging Face datacenter IPs (426 / ACCESS DENIED).
+    // Route through Vercel Edge Function (/api/stream) which:
+    //   - Has different IPs the CDN accepts
+    //   - Adds Access-Control-Allow-Origin: * so HLS.js XHR works
+    //   - Forwards the signCookie as a Cookie header
     if (parsed.hostname.includes('hakunaymatata.com')) {
-      return url;
+      const streamUrl = `/api/stream?url=${encodeURIComponent(url)}`;
+      if (authParams) {
+        // Extract the raw cookie value from "Edge-Cache-Cookie=<value>"
+        const cookieVal = authParams.startsWith('Edge-Cache-Cookie=')
+          ? authParams.slice('Edge-Cache-Cookie='.length)
+          : authParams;
+        return `${streamUrl}&cookie=${cookieVal}`;
+      }
+      return streamUrl;
     }
     
     // Use a space (%20) as the auth token placeholder if empty. 
