@@ -738,9 +738,25 @@ function VideoPlayer({
     
     if (!isDash) {
       if ((url.includes('.m3u8') || url.includes('.m3u')) && Hls.isSupported()) {
+        // For hakunaymatata CDN: send signCookie directly via XHR header — the CDN accepts
+        // browser requests with Cookie auth but blocks datacenter IPs (like Hugging Face).
+        // For all other hosts: route through our proxy as usual.
+        const isHakunaCDN = url.includes('hakunaymatata.com');
+        const rawSignCookie = isHakunaCDN && authParams
+          ? decodeURIComponent(authParams.replace(/^Edge-Cache-Cookie=/, ''))
+          : '';
+
         hlsPlayer = new Hls({
           xhrSetup: (xhr, u) => {
-            xhr.open('GET', toVlcProxyUrl(u, authParams), true);
+            if (isHakunaCDN) {
+              // Go direct — send signCookie as a request header so the CDN accepts it
+              xhr.open('GET', u, true);
+              if (rawSignCookie) {
+                xhr.setRequestHeader('Cookie', rawSignCookie);
+              }
+            } else {
+              xhr.open('GET', toVlcProxyUrl(u, authParams), true);
+            }
           },
           debug: false,
           liveSyncDurationCount: 3,
@@ -802,7 +818,8 @@ function VideoPlayer({
             }
           }
         });
-        hlsPlayer.loadSource(playbackUrl);
+        // For hakunaymatata, use the direct URL (no proxy); otherwise use proxy URL
+        hlsPlayer.loadSource(isHakunaCDN ? url : playbackUrl);
         hlsPlayer.attachMedia(video);
         video.play().catch(() => {});
       } else {

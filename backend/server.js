@@ -204,7 +204,7 @@ const server = http.createServer(async (req, res) => {
       const playHeaders = { ...H5_HEADERS, origin: `https://${playHost}`, referer: refPath };
 
       const fetchPlay = async (s, e) => {
-        const qs = new URLSearchParams({ subjectId, se: String(s), ep: String(e), streamSignType: '1', 'supportCodecs[hevc]': '1', 'supportCodecs[h264]': '1' });
+        const qs = new URLSearchParams({ subjectId, se: String(s), ep: String(e), streamSignType: '1', 'supportCodecs[h264]': '1' });
         if (detailPath) qs.set('detailPath', detailPath);
         const playRes = await fetch(`https://${playHost}/wefeed-h5api-bff/subject/play?${qs.toString()}`, { headers: playHeaders, signal: AbortSignal.timeout(10000) });
         if (!playRes.ok) return null;
@@ -223,10 +223,20 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      const mp4Streams = (data.streams || []).map(s => ({ ...s, format: s.format || 'MP4', title: s.title || '' }));
-      const dashStreams = (data.dash || []).map(s => ({ ...s, format: 'DASH', title: s.title || '' }));
+      // Filter out H.265/HEVC streams — browsers cannot decode them
+      const isHevc = (s) => /h265|hevc/i.test(s.codec || '') || /\/h265\//i.test(s.url || '');
+      const mp4Streams = (data.streams || [])
+        .filter(s => !isHevc(s))
+        .map(s => ({ ...s, format: s.format || 'MP4', title: s.title || '' }));
+      const dashStreams = (data.dash || [])
+        .filter(s => !isHevc(s))
+        .map(s => ({ ...s, format: 'DASH', title: s.title || '' }));
+      // Fallback: if H.264 filter leaves 0 streams, return all (let player handle it)
+      const allStreams = mp4Streams.length + dashStreams.length > 0
+        ? [...mp4Streams, ...dashStreams]
+        : [...(data.streams || []), ...(data.dash || [])];
       json(res, 200, {
-        streams: [...mp4Streams, ...dashStreams],
+        streams: allStreams,
         subtitles: data.subtitles || [],
         captions: data.captions || [],
         audioList: data.audioList || [],
