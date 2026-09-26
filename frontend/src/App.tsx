@@ -9,7 +9,7 @@ import './index.css'
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 🚧 MAINTENANCE MODE — set to `false` to restore the app
-const MAINTENANCE_MODE = true;
+const MAINTENANCE_MODE = false;
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const ROAST_LOADING_MESSAGES = [
@@ -139,6 +139,12 @@ function getAuthParams(stream: any): string {
     return '';
   }
 
+  // New aoneroom Edge-Cache-Cookie format: "Edge-Cache-Cookie=urlprefix=...:sign=...:t=..."
+  if (stream.signCookie.startsWith('Edge-Cache-Cookie=')) {
+    return `Edge-Cache-Cookie=${encodeURIComponent(stream.signCookie.slice('Edge-Cache-Cookie='.length))}`;
+  }
+
+  // Legacy CloudFront format: "CloudFront-Policy=...; CloudFront-Signature=...; CloudFront-Key-Pair-Id=..."
   return stream.signCookie
     .split(';')
     .filter(Boolean)
@@ -682,8 +688,12 @@ function VideoPlayer({
     setIsSwitchingDub(true);
     const currentPos = videoRef.current?.currentTime || 0;
     try {
-      const res = await getPlayInfo(dubSubjectId, '0', '0');
+      // Find the detailPath for this dub
+      const dub = dubs?.find((d: any) => String(d.subjectId) === String(dubSubjectId));
+      const dubDetailPath = dub?.detailPath || '';
+      const res = await getPlayInfo(dubSubjectId, '0', '0', dubDetailPath);
       const newStreams = Array.isArray(res) ? res : (res?.streams || []);
+
       if (newStreams.length > 0) {
         const sorted = [...newStreams].sort((a: any, b: any) => getStreamScore(b) - getStreamScore(a));
         const best = sorted[0];
@@ -1546,7 +1556,7 @@ function App() {
         const items = payload || [];
         const validItems = items.filter((item: any) => {
           const hasCover = item.cover && (item.cover.url || typeof item.cover === 'string');
-          return hasCover && (item.subjectType === 1 || item.subjectType === 2 || !item.subjectType);
+          return Boolean(hasCover && item.title);
         });
         
         setMovies(prev => {
@@ -1648,18 +1658,12 @@ function App() {
         if (seasons.seasons && seasons.seasons.length > 0) {
            const firstSeason = seasons.seasons[0].se;
            setSelectedSeason(firstSeason);
-           let allEps: any[] = [];
-           let epPage = 1;
-           while (epPage <= 10) {
-             const resources = await getResourceLinks(subjectId, String(firstSeason), epPage);
-             const list = resources.list || [];
-             if (list.length === 0) break;
-             allEps = [...allEps, ...list];
-             if (list[list.length - 1].se > firstSeason) break;
-             if (list.length < 20) break;
-             epPage++;
+           if (seasons.episodes && seasons.episodes.length > 0) {
+             setEpisodeList(seasons.episodes.filter((e: any) => e.se === firstSeason));
+           } else {
+             const resources = await getResourceLinks(subjectId, String(firstSeason), 1);
+             setEpisodeList(resources.list || []);
            }
-           setEpisodeList(allEps.filter((e: any) => e.se === firstSeason));
         }
       } else {
         const resources = await getResourceLinks(subjectId, '0');
@@ -1699,29 +1703,17 @@ function App() {
   const handleSeasonChange = async (seasonNum: number) => {
     if (!selectedMovieId) return;
     setSelectedSeason(seasonNum);
-    setEpisodeList([]);
-    try {
-      let allEps: any[] = [];
-      let epPage = 1;
-      let foundSeason = false;
-      while (epPage <= 10) {
-        const resources = await getResourceLinks(selectedMovieId, String(seasonNum), epPage);
-        const list = resources.list || [];
-        if (list.length === 0) break;
-        allEps = [...allEps, ...list];
-        
-        const seasonEps = list.filter((e: any) => e.se === seasonNum);
-        if (seasonEps.length > 0) foundSeason = true;
-        if (foundSeason && list[list.length - 1].se > seasonNum) break;
-        
-        if (list.length < 20) break;
-        epPage++;
+    if (seasonInfo?.episodes && seasonInfo.episodes.length > 0) {
+      setEpisodeList(seasonInfo.episodes.filter((e: any) => e.se === seasonNum));
+    } else {
+      try {
+        const resources = await getResourceLinks(selectedMovieId, String(seasonNum), 1);
+        setEpisodeList(resources.list || []);
+      } catch (err) {
+        console.error(err);
       }
-      setEpisodeList(allEps.filter((e: any) => e.se === seasonNum));
-    } catch (err) {
-      console.error(err);
     }
-  }
+  };
 
   const openPlaybackOptions = async (se: string = '0', ep: string = '0') => {
     if (!selectedMovieId || isFetchingPlay) return;
@@ -1784,7 +1776,9 @@ function App() {
   const fetchMergedStreams = async (subjectId: string, se: string, ep: string) => {
     let playStreams: any[] = [];
     try {
-      const res = await getPlayInfo(subjectId, se, ep);
+      // Pass detailPath so the backend can build correct referer for mzfi.me
+      const detailPath = movieDetails?.detailPath || '';
+      const res = await getPlayInfo(subjectId, se, ep, detailPath);
       playStreams = Array.isArray(res) ? res : (res?.streams || []);
     } catch (e) {
       console.warn('getPlayInfo failed:', e);
@@ -1942,6 +1936,44 @@ function App() {
               </div>
             </h1>
           </div>
+          {/* Desktop Navigation Tabs */}
+          <nav className="hidden md:flex items-center gap-1 bg-white/5 border border-white/10 rounded-full px-2 py-1 backdrop-blur-md">
+            <button
+              type="button"
+              onClick={() => handleTabClick('home')}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold tracking-wide transition-all cursor-pointer ${activeTab === 'home' && !searchQuery && !selectedMovieId ? 'bg-cyan-500 text-black shadow-[0_0_14px_rgba(0,229,255,0.45)]' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+            >
+              Home
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTabClick('movies')}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold tracking-wide transition-all cursor-pointer ${activeTab === 'movies' && !searchQuery && !selectedMovieId ? 'bg-cyan-500 text-black shadow-[0_0_14px_rgba(0,229,255,0.45)]' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+            >
+              Movies
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTabClick('tvshows')}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold tracking-wide transition-all cursor-pointer ${activeTab === 'tvshows' && !searchQuery && !selectedMovieId ? 'bg-cyan-500 text-black shadow-[0_0_14px_rgba(0,229,255,0.45)]' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+            >
+              TV Shows
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTabClick('anime')}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold tracking-wide transition-all cursor-pointer ${activeTab === 'anime' && !searchQuery && !selectedMovieId ? 'bg-cyan-500 text-black shadow-[0_0_14px_rgba(0,229,255,0.45)]' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+            >
+              Anime
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTabClick('livetv')}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold tracking-wide transition-all cursor-pointer ${activeTab === 'livetv' && !searchQuery && !selectedMovieId ? 'bg-cyan-500 text-black shadow-[0_0_14px_rgba(0,229,255,0.45)]' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+            >
+              Live TV
+            </button>
+          </nav>
           <div className="search-shell">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m21 21-4.35-4.35" /><circle cx="11" cy="11" r="7" /></svg>
             <input 

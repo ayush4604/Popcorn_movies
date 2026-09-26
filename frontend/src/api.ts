@@ -28,8 +28,9 @@ export async function getTrendingMovies(page: number = 1, perPage: number = 20) 
   return response.json();
 }
 
-export async function getPlayInfo(subjectId: string, se: string = '0', ep: string = '0') {
+export async function getPlayInfo(subjectId: string, se: string = '0', ep: string = '0', detailPath?: string) {
   const params = new URLSearchParams({ subjectId, se, ep });
+  if (detailPath) params.set('detailPath', detailPath);
   const response = await fetchWithRetry(apiUrl(`/api/play-info?${params}`));
 
   if (!response.ok) {
@@ -38,7 +39,8 @@ export async function getPlayInfo(subjectId: string, se: string = '0', ep: strin
 
   const data = await response.json();
   if (Array.isArray(data)) return data;
-  return data.streams || [];
+  // Return full data object so callers can access streams, captions, etc.
+  return data;
 }
 
 export async function searchMovies(keyword: string, page: number = 1, perPage: number = 20) {
