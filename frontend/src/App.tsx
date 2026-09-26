@@ -168,6 +168,14 @@ function toVlcProxyUrl(url: string, authParams: string): string {
     if (parsed.hostname.includes('rumble.cloud') || parsed.origin === backendOrigin) {
       return url;
     }
+
+    // hakunaymatata.com CDNs reject requests from Hugging Face datacenter IPs:
+    // - bcdnxw: returns 426 (requires HTTP/2, Node proxy uses HTTP/1.1)
+    // - sbcdnw: returns ACCESS DENIED (IP block)
+    // Return direct URL so the browser fetches it — user IPs are not blocked.
+    if (parsed.hostname.includes('hakunaymatata.com')) {
+      return url;
+    }
     
     // Use a space (%20) as the auth token placeholder if empty. 
     // This prevents the browser from collapsing the // path segment, 
@@ -738,25 +746,11 @@ function VideoPlayer({
     
     if (!isDash) {
       if ((url.includes('.m3u8') || url.includes('.m3u')) && Hls.isSupported()) {
-        // For hakunaymatata CDN: send signCookie directly via XHR header — the CDN accepts
-        // browser requests with Cookie auth but blocks datacenter IPs (like Hugging Face).
-        // For all other hosts: route through our proxy as usual.
-        const isHakunaCDN = url.includes('hakunaymatata.com');
-        const rawSignCookie = isHakunaCDN && authParams
-          ? decodeURIComponent(authParams.replace(/^Edge-Cache-Cookie=/, ''))
-          : '';
-
+        // playbackUrl already handles hakunaymatata.com CDN bypass (goes direct)
+        // and proxies everything else through the backend.
         hlsPlayer = new Hls({
           xhrSetup: (xhr, u) => {
-            if (isHakunaCDN) {
-              // Go direct — send signCookie as a request header so the CDN accepts it
-              xhr.open('GET', u, true);
-              if (rawSignCookie) {
-                xhr.setRequestHeader('Cookie', rawSignCookie);
-              }
-            } else {
-              xhr.open('GET', toVlcProxyUrl(u, authParams), true);
-            }
+            xhr.open('GET', toVlcProxyUrl(u, authParams), true);
           },
           debug: false,
           liveSyncDurationCount: 3,
@@ -818,8 +812,7 @@ function VideoPlayer({
             }
           }
         });
-        // For hakunaymatata, use the direct URL (no proxy); otherwise use proxy URL
-        hlsPlayer.loadSource(isHakunaCDN ? url : playbackUrl);
+        hlsPlayer.loadSource(playbackUrl);
         hlsPlayer.attachMedia(video);
         video.play().catch(() => {});
       } else {
